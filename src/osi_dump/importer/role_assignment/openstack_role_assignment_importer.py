@@ -128,11 +128,17 @@ class OpenStackRoleAssignmentImporter(RoleAssignmentImporter):
         except Exception as e:
             logger.warning(f"Can not get option")
 
+        try:
+            enabled = self.users[user_id]["enabled"]
+        except Exception as e:
+            logger.warning(f"Can not get enabled")
+
         role_assignment_ret = RoleAssignment(
             user_id=user_id,
             user_name=user_name,
             role_id=role_id,
             role_name=role_name,
+            enabled=enabled,
             scope=role_assignment["scope"],
             password_expires_at=password_expires_at,
             options=options

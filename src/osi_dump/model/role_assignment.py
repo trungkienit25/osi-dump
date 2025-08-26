@@ -14,6 +14,8 @@ class RoleAssignment(BaseModel):
 
     role_name: Optional[str]
 
+    enabled: Optional[bool]
+
     options: Optional[dict]
 
     password_expires_at: Optional[str]
