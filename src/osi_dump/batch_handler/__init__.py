@@ -3,3 +3,4 @@ from .project_batch_handler import ProjectBatchHandler
 from .hypervisor_batch_handler import HypervisorBatchHandler
 from .floating_ip_batch_handler import FloatingIPBatchHandler
 from .volume_batch_handler import VolumeBatchHandler
+from .security_group_batch_handler import SecurityGroupBatchHandler

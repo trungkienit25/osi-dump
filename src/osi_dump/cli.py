@@ -23,6 +23,7 @@ from osi_dump.batch_handler.network_batch_handler import NetworkBatchHandler
 
 from osi_dump.batch_handler.image_batch_handler import ImageBatchHandler
 from osi_dump.batch_handler.volume_batch_handler import VolumeBatchHandler
+from osi_dump.batch_handler.security_group_batch_handler import SecurityGroupBatchHandler
 from osi_dump.os_connection.get_connections import get_connections
 
 
@@ -190,6 +191,8 @@ def inner_main(file_path: str, output_path: str):
 
     _network(connections=connections, output_path=output_path)
 
+    _security_group(connections=connections, output_path=output_path) 
+
     util.excel_autosize_column(output_path)
 
     util.excel_sort_sheet(output_path)
@@ -197,6 +200,13 @@ def inner_main(file_path: str, output_path: str):
     logger.info(
         f"Exported OpenStack information to file: {os.path.abspath(output_path)}"
     )
+
+def _security_group(connections, output_path: str):
+    sec_group_batch_handler = SecurityGroupBatchHandler()
+    sec_group_batch_handler.add_importer_exporter_from_openstack_connections(
+        connections, output_file=output_path
+    )
+    sec_group_batch_handler.process()
 
 
 def main(
