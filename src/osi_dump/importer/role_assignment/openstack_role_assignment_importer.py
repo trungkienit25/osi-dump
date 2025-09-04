@@ -90,48 +90,52 @@ class OpenStackRoleAssignmentImporter(RoleAssignmentImporter):
 
         user_id = None
         role_id = None
-
-        try:
-            user_id: str = role_assignment["user"]["id"]
-        except Exception as e:
-            logger.warning(f"Can not get user id: {e}")
-
-        try:
-            role_id = role_assignment["role"]["id"]
-        except Exception as e:
-            logger.warning(f"Can not get role id: {e}")
-
         user_name = None
         role_name = None
-
         password_expires_at = None
         options = None
+        enabled = None
 
         try:
-            user_name = self.users[user_id]["name"]
+            user_obj = role_assignment.get("user")
+            if user_obj:
+                user_id = user_obj.get("id")
         except Exception as e:
-            logger.warning(f"Can not get user name: {e}")
+            logger.warning(f"Can not get user id for a role assignment: {e}")
 
         try:
-            role_name = self.roles[role_id]
+            role_obj = role_assignment.get("role")
+            if role_obj:
+                role_id = role_obj.get("id")
         except Exception as e:
-            logger.warning(f"Can not get role name: {e}")
+            logger.warning(f"Can not get role id for a role assignment: {e}")
 
-        try:
-            password_expires_at = self.users[user_id]["password_expires_at"]
-        except Exception as e: 
-            logger.warning(f"Can not get password expires at: {e}")
+        if user_id and user_id in self.users:
+            try:
+                user_name = self.users[user_id].get("name")
+            except Exception as e:
+                logger.warning(f"Can not get user name for user {user_id}: {e}")
 
+            try:
+                password_expires_at = self.users[user_id].get("password_expires_at")
+            except Exception as e: 
+                logger.warning(f"Can not get password expires at for user {user_id}: {e}")
 
-        try:
-            options = self.users[user_id]["options"]
-        except Exception as e:
-            logger.warning(f"Can not get option")
+            try:
+                options = self.users[user_id].get("options")
+            except Exception as e:
+                logger.warning(f"Can not get options for user {user_id}: {e}")
 
-        try:
-            enabled = self.users[user_id]["enabled"]
-        except Exception as e:
-            logger.warning(f"Can not get enabled")
+            try:
+                enabled = self.users[user_id].get("enabled")
+            except Exception as e:
+                logger.warning(f"Can not get enabled status for user {user_id}: {e}")
+                
+        if role_id and role_id in self.roles:
+            try:
+                role_name = self.roles[role_id]
+            except Exception as e:
+                logger.warning(f"Can not get role name for role {role_id}: {e}")
 
         role_assignment_ret = RoleAssignment(
             user_id=user_id,
