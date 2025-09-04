@@ -1,151 +1,120 @@
 import logging
-
-import concurrent
-
 from openstack.connection import Connection
 from openstack.identity.v3.role_assignment import RoleAssignment as OSRoleAssignment
-from openstack.identity.v3.user import User as OSUser
 
-
-from osi_dump.importer.role_assignment.role_assignment_importer import (
-    RoleAssignmentImporter,
-)
-from osi_dump.model.role_assignment import RoleAssignment
-
-from osi_dump.api.keystone import get_role_assignments, get_users
+from .role_assignment_importer import RoleAssignmentImporter
+from osi_dump.model.role_assignment import UserRoleAssignment, GroupRoleAssignment, EffectiveUserRole
+from osi_dump.api.keystone import get_users
 
 logger = logging.getLogger(__name__)
-
 
 class OpenStackRoleAssignmentImporter(RoleAssignmentImporter):
     def __init__(self, connection: Connection):
         self.connection = connection
-
-        self.users: dict[str, dict] = {}
+        self.users = {}
         self.roles = {}
+        self.groups = {}
+        self.group_members = {}  
 
     def _get_users(self):
         os_users = get_users(self.connection)
-
         for os_user in os_users:
             self.users[os_user["id"]] = os_user
 
     def _get_roles(self):
         os_roles = self.connection.identity.roles()
-
         for os_role in os_roles:
             self.roles[os_role.id] = os_role.name
 
-    def import_role_assignments(self) -> list[RoleAssignment]:
-        """Import role_assignments information from Openstack
+    def _get_groups_and_members(self):
+        """Lấy tất cả group và thành viên của chúng."""
+        try:
+            os_groups = list(self.connection.identity.groups())
+            for group in os_groups:
+                self.groups[group.id] = group.name
+                try:
+                    members = list(self.connection.identity.group_users(group))
+                    self.group_members[group.id] = [user.id for user in members]
+                except Exception as e:
+                    logger.warning(f"Could not fetch members for group {group.name}: {e}")
+                    self.group_members[group.id] = []
+        except Exception as e:
+            logger.error(f"Could not fetch groups: {e}")
 
-        Raises:
-            Exception: Raises exception if fetching role_assignment failed
+    def import_role_assignments(self) -> dict:
+        logger.info(f"Importing role assignments for {self.connection.auth['auth_url']}")
 
-        Returns:
-            list[RoleAssignment]: _description_
-        """
-
-        logger.info(
-            f"Importing role_assignments for {self.connection.auth['auth_url']}"
-        )
+        self._get_users()
+        self._get_roles()
+        self._get_groups_and_members()
 
         try:
-            self._get_users()
+            os_role_assignments = list(self.connection.identity.role_assignments())
         except Exception as e:
-            logger.info(f"Getting user list failed {e}")
+            raise Exception(f"Can not fetch role_assignments for {self.connection.auth['auth_url']} {e}") from e
 
-        try:
-            self._get_roles()
-        except Exception as e:
-            logger.info(f"Getting role list failed {e}")
+        raw_user_roles = []
+        raw_group_roles = []
 
-        try:
-            osrole_assignments: list[OSRoleAssignment] = list(
-                self.connection.identity.role_assignments()
-            )
+        for assignment in os_role_assignments:
+            role_id = assignment.role.get('id') if assignment.role else None
+            role_name = self.roles.get(role_id)
+            scope = assignment.scope
 
-        except Exception as e:
-            raise Exception(
-                f"Can not fetch role_assignments for {self.connection.auth['auth_url']} {e}"
-            ) from e
+            if assignment.user:
+                user_id = assignment.user.get('id')
+                user_info = self.users.get(user_id, {})
+                raw_user_roles.append(UserRoleAssignment(
+                    user_id=user_id,
+                    user_name=user_info.get('name'),
+                    role_id=role_id,
+                    role_name=role_name,
+                    scope=scope,
+                    enabled=user_info.get('enabled'),
+                    password_expires_at=user_info.get('password_expires_at'),
+                    options=user_info.get('options')
+                ))
 
-        role_assignments: list[RoleAssignment] = []
+            elif assignment.group:
+                group_id = assignment.group.get('id')
+                raw_group_roles.append(GroupRoleAssignment(
+                    group_id=group_id,
+                    group_name=self.groups.get(group_id),
+                    role_id=role_id,
+                    role_name=role_name,
+                    scope=scope
+                ))
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(self._get_role_assignment_info, role_assignment)
-                for role_assignment in osrole_assignments
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                role_assignments.append(future.result())
+        effective_roles = []
+        
+        for user_role in raw_user_roles:
+            effective_roles.append(EffectiveUserRole(
+                user_id=user_role.user_id,
+                user_name=user_role.user_name,
+                role_id=user_role.role_id,
+                role_name=user_role.role_name,
+                scope=user_role.scope,
+                inherited_from_group='[Direct]'
+            ))
 
-        logger.info(f"Imported role_assignments for {self.connection.auth['auth_url']}")
+        for group_role in raw_group_roles:
+            group_id = group_role.group_id
+            if group_id in self.group_members:
+                for user_id in self.group_members[group_id]:
+                    user_info = self.users.get(user_id, {})
+                    effective_roles.append(EffectiveUserRole(
+                        user_id=user_id,
+                        user_name=user_info.get('name'),
+                        role_id=group_role.role_id,
+                        role_name=group_role.role_name,
+                        scope=group_role.scope,
+                        inherited_from_group=group_role.group_name
+                    ))
+        
+        effective_roles.sort(key=lambda x: (x.user_name or "", x.role_name or ""))
 
-        return role_assignments
-
-    def _get_role_assignment_info(
-        self, role_assignment: OSRoleAssignment
-    ) -> RoleAssignment:
-
-        user_id = None
-        role_id = None
-        user_name = None
-        role_name = None
-        password_expires_at = None
-        options = None
-        enabled = None
-
-        try:
-            user_obj = role_assignment.get("user")
-            if user_obj:
-                user_id = user_obj.get("id")
-        except Exception as e:
-            logger.warning(f"Can not get user id for a role assignment: {e}")
-
-        try:
-            role_obj = role_assignment.get("role")
-            if role_obj:
-                role_id = role_obj.get("id")
-        except Exception as e:
-            logger.warning(f"Can not get role id for a role assignment: {e}")
-
-        if user_id and user_id in self.users:
-            try:
-                user_name = self.users[user_id].get("name")
-            except Exception as e:
-                logger.warning(f"Can not get user name for user {user_id}: {e}")
-
-            try:
-                password_expires_at = self.users[user_id].get("password_expires_at")
-            except Exception as e: 
-                logger.warning(f"Can not get password expires at for user {user_id}: {e}")
-
-            try:
-                options = self.users[user_id].get("options")
-            except Exception as e:
-                logger.warning(f"Can not get options for user {user_id}: {e}")
-
-            try:
-                enabled = self.users[user_id].get("enabled")
-            except Exception as e:
-                logger.warning(f"Can not get enabled status for user {user_id}: {e}")
-                
-        if role_id and role_id in self.roles:
-            try:
-                role_name = self.roles[role_id]
-            except Exception as e:
-                logger.warning(f"Can not get role name for role {role_id}: {e}")
-
-        role_assignment_ret = RoleAssignment(
-            user_id=user_id,
-            user_name=user_name,
-            role_id=role_id,
-            role_name=role_name,
-            enabled=enabled,
-            scope=role_assignment["scope"],
-            password_expires_at=password_expires_at,
-            options=options
-        )
-
-        return role_assignment_ret
+        return {
+            "user_roles": raw_user_roles,
+            "group_roles": raw_group_roles,
+            "effective_roles": effective_roles
+        }
