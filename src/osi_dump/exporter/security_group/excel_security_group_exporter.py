@@ -1,5 +1,6 @@
 import logging
 import pandas as pd
+from typing import Generator
 from osi_dump import util
 from osi_dump.exporter.security_group.security_group_exporter import SecurityGroupExporter
 from osi_dump.model.security_group import SecurityGroup
@@ -11,18 +12,21 @@ class ExcelSecurityGroupExporter(SecurityGroupExporter):
         self.sheet_name = sheet_name
         self.output_file = output_file
 
-    def export_security_groups(self, security_groups: list[SecurityGroup]):
-        if not security_groups:
-            logger.info(f"No security groups to export for {self.sheet_name}")
-            return
+    def export_security_groups(self, security_groups: Generator[SecurityGroup, None, None]):
+        
+        data_generator = (sg.model_dump() for sg in security_groups)
 
         df = pd.json_normalize(
-            [sg.model_dump() for sg in security_groups],
+            data_generator,
             record_path='rules',
             meta=['security_group_id', 'name', 'project_id', 'description'],
             record_prefix='rule.'
         )
 
+        if df.empty:
+            logger.info(f"No security groups to export for {self.sheet_name}")
+            return
+            
         logger.info(f"Exporting security groups for {self.sheet_name}")
         try:
             util.export_data_excel(self.output_file, sheet_name=self.sheet_name, df=df)

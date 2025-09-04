@@ -2,8 +2,8 @@ import logging
 from openstack.connection import Connection
 from osi_dump import util
 from osi_dump.importer.security_group.security_group_importer import SecurityGroupImporter
-from osi_dump.importer.security_group.openstack_security_group_importer import OpenStackSecurityGroupImporter
 from osi_dump.exporter.security_group.security_group_exporter import SecurityGroupExporter
+from osi_dump.importer.security_group.openstack_security_group_importer import OpenStackSecurityGroupImporter
 from osi_dump.exporter.security_group.excel_security_group_exporter import ExcelSecurityGroupExporter
 
 logger = logging.getLogger(__name__)
@@ -26,8 +26,12 @@ class SecurityGroupBatchHandler:
     def process(self):
         for importer, exporter in self._importer_exporter_list:
             try:
-                security_groups = importer.import_security_groups()
-                exporter.export_security_groups(security_groups=security_groups)
+                # importer get generators
+                security_groups_generator = importer.import_security_groups()
+                
+                # exporter uses generators
+                exporter.export_security_groups(security_groups=security_groups_generator)
+
             except Exception as e:
                 logger.warning(e)
                 logger.warning("Skipping security group export...")
