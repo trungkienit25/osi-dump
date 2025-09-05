@@ -2,6 +2,7 @@ import logging
 import pandas as pd
 from osi_dump import util
 from .role_assignment_exporter import RoleAssignmentExporter
+from osi_dump.importer.role_assignment.role_assignment_importer import RoleAssignmentImporter
 
 logger = logging.getLogger(__name__)
 
@@ -10,31 +11,28 @@ class ExcelRoleAssignmentExporter(RoleAssignmentExporter):
         self.sheet_name_prefix = sheet_name_prefix
         self.output_file = output_file
 
-    def export_role_assignments(self, role_data: dict):
-        user_roles = role_data.get("user_roles", [])
-        group_roles = role_data.get("group_roles", [])
-        effective_roles = role_data.get("effective_roles", [])
+    def export_role_assignments(self, importer: RoleAssignmentImporter):
+        # Sheet 1: User Effective Roles
+        df_effective = pd.json_normalize(
+            (role.model_dump() for role in importer.calculate_effective_roles())
+        )
+        if not df_effective.empty:
+            df_effective.sort_values(by=['user_name', 'role_name'], inplace=True)
+            self._export_to_sheet(df_effective, f"{self.sheet_name_prefix}-eff")
 
-        if effective_roles:
-            df_effective = pd.json_normalize(
-                [role.model_dump() for role in effective_roles]
-            )
-            sheet_name = f"{self.sheet_name_prefix}-effective"
-            self._export_to_sheet(df_effective, sheet_name)
-
-        if user_roles:
-            df_user = pd.json_normalize(
-                [role.model_dump() for role in user_roles]
-            )
-            sheet_name = f"{self.sheet_name_prefix}-user"
-            self._export_to_sheet(df_user, sheet_name)
+        # Sheet 2: Raw User Roles
+        df_user = pd.json_normalize(
+            (role.model_dump() for role in importer.get_user_roles())
+        )
+        if not df_user.empty:
+            self._export_to_sheet(df_user, f"{self.sheet_name_prefix}-usr")
             
-        if group_roles:
-            df_group = pd.json_normalize(
-                [role.model_dump() for role in group_roles]
-            )
-            sheet_name = f"{self.sheet_name_prefix}-group"
-            self._export_to_sheet(df_group, sheet_name)
+        # Sheet 3: Raw Group Roles
+        df_group = pd.json_normalize(
+            (role.model_dump() for role in importer.get_group_roles())
+        )
+        if not df_group.empty:
+            self._export_to_sheet(df_group, f"{self.sheet_name_prefix}-grp")
 
     def _export_to_sheet(self, df: pd.DataFrame, sheet_name: str):
         logger.info(f"Exporting data to sheet: {sheet_name}")

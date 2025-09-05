@@ -31,8 +31,8 @@ class RoleAssignmentBatchHandler:
     def process(self):
         for importer, exporter in self._importer_exporter_list:
             try:
-                all_role_data = importer.import_role_assignments()
-                exporter.export_role_assignments(role_data=all_role_data)
+                # importer to exporter
+                exporter.export_role_assignments(importer=importer)
             except Exception as e:
                 logger.warning(e)
                 logger.warning("Skipping...")
