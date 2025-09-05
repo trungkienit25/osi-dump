@@ -91,3 +91,9 @@
 
 ## 0.1.3.3.4.2
 - Re add missing sheets
+
+## 0.1.3.4.4.3
+
+- Add Security groups sheet
+- Refactor role assignment using Python generator
+- Add Role effective sheet to view roles inherited from group roles
