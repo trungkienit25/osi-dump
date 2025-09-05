@@ -18,21 +18,21 @@ class ExcelRoleAssignmentExporter(RoleAssignmentExporter):
         )
         if not df_effective.empty:
             df_effective.sort_values(by=['user_name', 'role_name'], inplace=True)
-            self._export_to_sheet(df_effective, f"{self.sheet_name_prefix}-eff")
+            self._export_to_sheet(df_effective, f"{self.sheet_name_prefix}-effective")
 
         # Sheet 2: Raw User Roles
         df_user = pd.json_normalize(
             (role.model_dump() for role in importer.get_user_roles())
         )
         if not df_user.empty:
-            self._export_to_sheet(df_user, f"{self.sheet_name_prefix}-usr")
+            self._export_to_sheet(df_user, f"{self.sheet_name_prefix}-user")
             
         # Sheet 3: Raw Group Roles
         df_group = pd.json_normalize(
             (role.model_dump() for role in importer.get_group_roles())
         )
         if not df_group.empty:
-            self._export_to_sheet(df_group, f"{self.sheet_name_prefix}-grp")
+            self._export_to_sheet(df_group, f"{self.sheet_name_prefix}-group")
 
     def _export_to_sheet(self, df: pd.DataFrame, sheet_name: str):
         logger.info(f"Exporting data to sheet: {sheet_name}")
