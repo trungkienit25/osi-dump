@@ -41,7 +41,7 @@ def get_router_project(connection: Connection, router_id: str):
     # )
 
     neutron_endpoints = os_util.get_endpoints(
-        connection=connection, service_type="network", interface="public"
+        connection=connection, service_type="network", interface="internal"
     )
 
     response = None

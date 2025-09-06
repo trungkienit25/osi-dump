@@ -1,6 +1,6 @@
 [project]
 name = "osi-dump"
-version = "0.1.4"
+version = "0.1.4.1"
 description = "OpenStack information dump tool"
 readme = "README.md"
 authors = [{ name = "TVKain" }]
