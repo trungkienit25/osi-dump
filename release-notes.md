@@ -99,7 +99,3 @@
 - Refactor role assignment using Python generator
 - Add Role effective sheet to view roles inherited from group roles
 - Refactor instance using Python generator
-
-## 0.1.4.1
-
-- Fix neutron API
