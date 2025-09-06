@@ -31,7 +31,6 @@ class RoleAssignmentBatchHandler:
     def process(self):
         for importer, exporter in self._importer_exporter_list:
             try:
-                # importer to exporter
                 exporter.export_role_assignments(importer=importer)
             except Exception as e:
                 logger.warning(e)

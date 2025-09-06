@@ -20,11 +20,11 @@ class GroupRoleAssignment(BaseModel):
     role_name: Optional[str]
     scope: dict
 
-class EffectiveUserRole(BaseModel):
-    model_config = ConfigDict(strict=True)
-    user_id: str
-    user_name: Optional[str]
-    role_id: str
-    role_name: Optional[str]
-    scope: dict
-    inherited_from_group: Optional[str]
+#class EffectiveUserRole(BaseModel):
+#    model_config = ConfigDict(strict=True)
+#    user_id: str
+#    user_name: Optional[str]
+#    role_id: str
+#    role_name: Optional[str]
+#    scope: dict
+#    inherited_from_group: Optional[str]

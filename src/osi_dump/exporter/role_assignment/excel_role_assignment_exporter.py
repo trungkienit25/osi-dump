@@ -12,22 +12,14 @@ class ExcelRoleAssignmentExporter(RoleAssignmentExporter):
         self.output_file = output_file
 
     def export_role_assignments(self, importer: RoleAssignmentImporter):
-        # Sheet 1: User Effective Roles
-        df_effective = pd.json_normalize(
-            (role.model_dump() for role in importer.calculate_effective_roles())
-        )
-        if not df_effective.empty:
-            df_effective.sort_values(by=['user_name', 'role_name'], inplace=True)
-            self._export_to_sheet(df_effective, f"{self.sheet_name_prefix}-effective")
-
-        # Sheet 2: Raw User Roles
+        # Sheet 1: Raw User Role Assignments
         df_user = pd.json_normalize(
             (role.model_dump() for role in importer.get_user_roles())
         )
         if not df_user.empty:
             self._export_to_sheet(df_user, f"{self.sheet_name_prefix}-user")
             
-        # Sheet 3: Raw Group Roles
+        # Sheet 2: Raw Group Role Assignments
         df_group = pd.json_normalize(
             (role.model_dump() for role in importer.get_group_roles())
         )
