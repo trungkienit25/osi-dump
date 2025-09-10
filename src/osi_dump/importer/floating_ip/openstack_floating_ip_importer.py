@@ -1,7 +1,5 @@
 import logging
-
-import concurrent
-
+from typing import Generator
 from openstack.connection import Connection
 from openstack.network.v2.floating_ip import FloatingIP as OSFloatingIP
 
@@ -10,49 +8,26 @@ from osi_dump.model.floating_ip import FloatingIP
 
 logger = logging.getLogger(__name__)
 
-
 class OpenStackFloatingIPImporter(FloatingIPImporter):
     def __init__(self, connection: Connection):
         self.connection = connection
 
-    def import_floating_ips(self) -> list[FloatingIP]:
-        """Import instances information from Openstack
-
-        Raises:
-            Exception: Raises exception if fetching server failed
-
-        Returns:
-            list[Instance]: _description_
-        """
-
+    def import_floating_ips(self) -> Generator[FloatingIP, None, None]:
         logger.info(f"Importing floating ips for {self.connection.auth['auth_url']}")
-
         try:
-            osfloating_ips: list[OSFloatingIP] = list(
-                self.connection.list_floating_ips()
-            )
+            osfloating_ip_iterator = self.connection.list_floating_ips()
+            
+            for floating_ip in osfloating_ip_iterator:
+                yield self._get_floating_ip_info(floating_ip)
+
         except Exception as e:
-            raise Exception(
-                f"Can not fetch floating IPs for {self.connection.auth['auth_url']}"
-            ) from e
+            logger.error(f"Cannot fetch floating IPs for {self.connection.auth['auth_url']}: {e}")
+            return 
 
-        floating_ips: list[FloatingIP] = []
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(self._get_floating_ip_info, osfloating_ip)
-                for osfloating_ip in osfloating_ips
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                floating_ips.append(future.result())
-
-        logger.info(f"Imported floating ips for {self.connection.auth['auth_url']}")
-
-        return floating_ips
+        logger.info(f"Finished importing floating ips for {self.connection.auth['auth_url']}")
 
     def _get_floating_ip_info(self, floating_ip: OSFloatingIP) -> FloatingIP:
-
-        ret_floating_ip = FloatingIP(
+        return FloatingIP(
             floating_ip_id=floating_ip.id,
             project_id=floating_ip.project_id,
             floating_ip_address=floating_ip.floating_ip_address,
@@ -64,5 +39,3 @@ class OpenStackFloatingIPImporter(FloatingIPImporter):
             created_at=floating_ip.created_at,
             updated_at=floating_ip.updated_at,
         )
-
-        return ret_floating_ip
