@@ -1,9 +1,6 @@
 import logging
-
-import concurrent
-
+from typing import Generator
 from openstack.connection import Connection
-
 from openstack.block_storage.v3.volume import Volume as OSVolume
 
 from osi_dump.importer.volume.volume_importer import VolumeImporter
@@ -11,61 +8,36 @@ from osi_dump.model.volume import Volume
 
 logger = logging.getLogger(__name__)
 
-
 class OpenStackVolumeImporter(VolumeImporter):
     def __init__(self, connection: Connection):
         self.connection = connection
 
-    def import_volumes(self) -> list[Volume]:
-        """Import hypervisors information from Openstack
-
-        Raises:
-            Exception: Raises exception if fetching hypervisor failed
-
-        Returns:
-            list[Hypervisor]: _description_
-        """
-
+    def import_volumes(self) -> Generator[Volume, None, None]:
         logger.info(f"Importing volumes for {self.connection.auth['auth_url']}")
-
         try:
-            osvolumes: list[OSVolume] = list(
-                self.connection.block_storage.volumes(details=True, all_projects=True)
-            )
+            osvolume_iterator = self.connection.block_storage.volumes(details=True, all_projects=True)
+            
+            for volume in osvolume_iterator:
+                yield self._get_volume_info(volume)
+
         except Exception as e:
-            raise Exception(
-                f"Can not fetch volumes for {self.connection.auth['auth_url']}"
-            ) from e
-
-        volumes: list[Volume] = []
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(self._get_volume_info, volume) for volume in osvolumes
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                volumes.append(future.result())
-
-        logger.info(f"Imported volumes for {self.connection.auth['auth_url']}")
-
-        return volumes
+            logger.error(f"Cannot fetch volumes for {self.connection.auth['auth_url']}: {e}")
+            return
+            
+        logger.info(f"Finished importing volumes for {self.connection.auth['auth_url']}")
 
     def _get_volume_info(self, volume: OSVolume) -> Volume:
-
         snapshots = []
         try:
-            snapshots = list(
-                self.connection.block_storage.snapshots(
-                    details=False, all_projects=True, volume_id=volume.id
-                )
+            snapshot_list = self.connection.block_storage.snapshots(
+                details=False, all_projects=True, volume_id=volume.id
             )
-
-            snapshots = [snapshot["id"] for snapshot in snapshots]
+            snapshots = [snapshot.id for snapshot in snapshot_list]
 
         except Exception as e:
             logger.warning(f"Fetching snapshots failed for {volume.id} error: {e}")
 
-        ret_volume = Volume(
+        return Volume(
             volume_id=volume.id,
             volume_name=volume.name,
             project_id=volume.project_id,
@@ -77,5 +49,3 @@ class OpenStackVolumeImporter(VolumeImporter):
             updated_at=volume.updated_at,
             created_at=volume.created_at,
         )
-
-        return ret_volume
