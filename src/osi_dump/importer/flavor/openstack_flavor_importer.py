@@ -1,7 +1,5 @@
 import logging
-
-import concurrent
-
+from typing import Generator
 from openstack.connection import Connection
 from openstack.compute.v2.flavor import Flavor as OSFlavor
 
@@ -10,55 +8,35 @@ from osi_dump.model.flavor import Flavor
 
 logger = logging.getLogger(__name__)
 
-
 class OpenStackFlavorImporter(FlavorImporter):
     def __init__(self, connection: Connection):
         self.connection = connection
 
-    def import_flavors(self) -> list[Flavor]:
-        """Import flavors information from Openstack
-
-        Raises:
-            Exception: Raises exception if fetching flavor failed
-
-        Returns:
-            list[Instance]: _description_
-        """
-
+    def import_flavors(self) -> Generator[Flavor, None, None]:
         logger.info(f"Importing flavors for {self.connection.auth['auth_url']}")
-
         try:
-            osflavors: list[OSFlavor] = list(self.connection.list_flavors())
+            flavor_iterator = self.connection.list_flavors()
+
+            for osflavor in flavor_iterator:
+                yield self._get_flavor_info(osflavor)
+
         except Exception as e:
-            raise Exception(
-                f"Can not fetch flavors for {self.connection.auth['auth_url']}"
-            ) from e
+            logger.error(f"Cannot fetch flavors for {self.connection.auth['auth_url']}: {e}")
+            return 
 
-        flavors: list[Flavor] = []
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(self._get_flavor_info, osflavor)
-                for osflavor in osflavors
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                flavors.append(future.result())
-
-        logger.info(f"Imported flavors for {self.connection.auth['auth_url']}")
-
-        return flavors
+        logger.info(f"Finished importing flavors for {self.connection.auth['auth_url']}")
 
     def _get_flavor_info(self, flavor: OSFlavor) -> Flavor:
 
-        ret_flavor = Flavor(
+        swap_val = flavor.swap if flavor.swap else None
+
+        return Flavor(
             flavor_id=flavor.id,
             flavor_name=flavor.name,
             ram=flavor.ram,
             vcpus=flavor.vcpus,
             disk=flavor.disk,
-            swap=flavor.swap,
+            swap=swap_val,
             public=flavor.is_public,
             properties=flavor.extra_specs,
         )
-
-        return ret_flavor
