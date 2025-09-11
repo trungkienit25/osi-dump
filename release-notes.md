@@ -104,3 +104,10 @@
 
 - Remove role inheritance logic
 - Fix instance importer
+
+## 0.1.6
+Changed:
+- Refactor data importers to use Python generators:
+  - volume, floating IP, image, flavor
+  - router, external port, network
+  - hypervisor, project
