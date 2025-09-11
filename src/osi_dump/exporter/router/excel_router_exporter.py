@@ -14,7 +14,6 @@ class ExcelRouterExporter(RouterExporter):
         self.output_file = output_file
 
     def export_routers(self, routers: Generator[Router, None, None]):
-        # Sử dụng generator expression để Pandas tiêu thụ dữ liệu theo dòng
         df = pd.DataFrame(router.model_dump() for router in routers)
 
         if df.empty:

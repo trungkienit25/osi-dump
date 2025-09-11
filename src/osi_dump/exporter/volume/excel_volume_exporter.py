@@ -14,14 +14,12 @@ class ExcelVolumeExporter(VolumeExporter):
         self.output_file = output_file
 
     def export_volumes(self, volumes: Generator[Volume, None, None]):
-        # Sử dụng generator expression để Pandas tiêu thụ dữ liệu theo dòng
         df = pd.DataFrame(volume.model_dump() for volume in volumes)
 
         if df.empty:
             logger.info(f"No volumes to export for {self.sheet_name}")
             return
 
-        # Sắp xếp DataFrame theo tên volume để kết quả gọn gàng
         if 'volume_name' in df.columns:
             df.sort_values(by='volume_name', inplace=True, na_position='last')
 

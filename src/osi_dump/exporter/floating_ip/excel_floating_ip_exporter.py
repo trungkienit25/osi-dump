@@ -22,7 +22,9 @@ class ExcelFloatingIPExporter(FloatingIPExporter):
             return
 
         if 'floating_ip_address' in df.columns:
-            df['sort_key'] = df['floating_ip_address'].apply(ipaddress.ip_address)
+            df['sort_key'] = df['floating_ip_address'].apply(
+                lambda ip: ipaddress.ip_address(ip) if ip else ipaddress.ip_address('0.0.0.0')
+            )
             df.sort_values(by='sort_key', inplace=True)
             df.drop(columns='sort_key', inplace=True)
 
