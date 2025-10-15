@@ -42,14 +42,10 @@ class OpenStackVolumeImporter(VolumeImporter):
         except Exception as e:
             logger.warning(f"Fetching snapshots failed for {volume.id} error: {e}")
 
-        # --- BẮT ĐẦU THAY ĐỔI THEO SDK ---
-        # Lấy thuộc tính host trực tiếp như tài liệu SDK
         host_attr = volume.host
 
-        # Lấy và xử lý metadata (giữ nguyên logic vì đã chính xác)
         image_metadata_dict = {}
         if volume.volume_image_metadata:
-            # SDK có thể trả về dict sẵn hoặc string tùy phiên bản
             if isinstance(volume.volume_image_metadata, str):
                 try:
                     image_metadata_dict = json.loads(volume.volume_image_metadata)
@@ -57,7 +53,6 @@ class OpenStackVolumeImporter(VolumeImporter):
                     logger.warning(f"Could not parse volume_image_metadata for volume {volume.id}")
             elif isinstance(volume.volume_image_metadata, dict):
                 image_metadata_dict = volume.volume_image_metadata
-        # --- KẾT THÚC THAY ĐỔI THEO SDK ---
 
         return Volume(
             volume_id=volume.id,
