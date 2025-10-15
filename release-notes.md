@@ -111,3 +111,8 @@ Changed:
   - volume, floating IP, image, flavor
   - router, external port, network
   - hypervisor, project
+
+## 0.1.7
+Changed:
+- Refactor data exporter:
+  - volume: Add collums of os-vol-host-attr:host, volume_image_metadata
