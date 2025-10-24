@@ -19,7 +19,18 @@ class ExcelInstanceExporter(InstanceExporter):
         if df.empty:
             logger.info(f"No instances to export for {self.sheet_name}")
             return
-        df.sort_values(by='instance_name', inplace=True, na_position='last')
+
+        if 'created_at' in df.columns:
+            df['created_at_dt'] = pd.to_datetime(df['created_at'], errors='coerce')
+
+            df.sort_values(by='created_at_dt', inplace=True, ascending=True, na_position='last')
+
+            df.drop(columns=['created_at_dt'], inplace=True)
+            logger.info(f"Instances sheet '{self.sheet_name}' will be sorted by creation time.")
+        else:
+             logger.warning(f"Column 'created_at' not found for {self.sheet_name}. Sorting by name instead.")
+             if 'instance_name' in df.columns:
+                 df.sort_values(by='instance_name', inplace=True, na_position='last')
 
         logger.info(f"Exporting instances for {self.sheet_name}")
         try:
