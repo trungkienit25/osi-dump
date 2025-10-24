@@ -23,7 +23,7 @@ class ExcelInstanceExporter(InstanceExporter):
         if 'created_at' in df.columns:
             df['created_at_dt'] = pd.to_datetime(df['created_at'], errors='coerce')
 
-            df.sort_values(by='created_at_dt', inplace=True, ascending=True, na_position='last')
+            df.sort_values(by='created_at_dt', inplace=True, ascending=False, na_position='last')
 
             df.drop(columns=['created_at_dt'], inplace=True)
             logger.info(f"Instances sheet '{self.sheet_name}' will be sorted by creation time.")
