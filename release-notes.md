@@ -121,3 +121,8 @@ Changed:
 Changed:
 - Refactor data exporter:
   - instance: Instances sheet 'self.sheet_name' will be sorted by creation time.
+
+## 0.1.9
+Changed:
+- Refactor data exporter:
+  - hypervisor: Hypervisors sheet will be sorted by name prefix and numeric suffix..
