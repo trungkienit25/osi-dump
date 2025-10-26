@@ -116,3 +116,8 @@ Changed:
 Changed:
 - Refactor data exporter:
   - volume: Add collums of os-vol-host-attr:host, volume_image_metadata
+
+## 0.1.8
+Changed:
+- Refactor data exporter:
+  - instance: Instances sheet 'self.sheet_name' will be sorted by creation time.
