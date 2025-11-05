@@ -125,4 +125,10 @@ Changed:
 ## 0.1.9
 Changed:
 - Refactor data exporter:
-  - hypervisor: Hypervisors sheet will be sorted by name prefix and numeric suffix..
+  - hypervisor: Hypervisors sheet will be sorted by name prefix and numeric suffix.
+
+## 0.2.0
+Changed:
+- Hotfix data exporter:
+  - hypervisor: Fix sorting error in Agg collums.
+  - Fix: src/util/panda_excel
