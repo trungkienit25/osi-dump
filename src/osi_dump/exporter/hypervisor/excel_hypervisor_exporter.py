@@ -41,6 +41,9 @@ class ExcelHypervisorExporter(HypervisorExporter):
             logger.info(f"No hypervisors to export for {self.sheet_name}")
             return
 
+        if 'aggregates' in df.columns:
+            df = util.expand_list_column(df, "aggregates")
+
         if 'name' in df.columns:
             try:
                 sort_keys = df['name'].fillna('').apply(_extract_sort_keys)
@@ -62,9 +65,6 @@ class ExcelHypervisorExporter(HypervisorExporter):
                 df.sort_values(by='name', inplace=True, na_position='last')
         else:
              logger.warning(f"Column 'name' not found for {self.sheet_name}. Skipping custom sort.")
-
-        if 'aggregates' in df.columns:
-            df = util.expand_list_column(df, "aggregates")
 
         logger.info(f"Exporting hypervisors for {self.sheet_name}")
         try:
