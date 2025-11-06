@@ -1,32 +1,35 @@
 import pandas as pd
 
 def expand_list_column(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
-    rows = []
-    for _, row in df.iterrows():
-        # 1. Lấy dữ liệu hàng gốc
-        base_data = row.to_dict()
-        
-        # 2. Lấy base data và xóa nó khỏi dữ liệu gốc
-        list_data = base_data.pop(column_name)
+    """
+    Mở rộng một cột chứa danh sách các dictionary thành CÁC CỘT MỚI
+    trên CÙNG MỘT HÀNG (ví dụ: aggregates.0.id, aggregates.1.id).
+    Không nhân bản hàng.
+    """
+    
+    df = df.copy()
 
-        if list_data: # Nếu danh sách không rỗng
-            for item in list_data:
+    if column_name not in df.columns or df[column_name].isnull().all():
+        return df
+    
+    list_series = df[column_name].apply(lambda x: x if isinstance(x, list) else [])
+    
+    if list_series.apply(len).max() == 0:
+        return df.drop(column_name, axis=1, errors='ignore')
 
-                # 3. Tạo một BẢN SAO của hàng gốc cho MỖI item trong danh sách
-                new_row = base_data.copy()
+    max_len = int(list_series.apply(len).max())
 
-                if isinstance(item, dict):
-                    # 4. Thêm các key được mở rộng vào BẢN SAO
-                    for key, value in item.items():
-                        new_row[f"{column_name}.{key}"] = value
-                else:
-                    # Xử lý trường hợp item không phải là dict (ví dụ: danh sách chuỗi)
-                    new_row[column_name] = item
-                
-                # 5. Thêm hàng mới (đã bao gồm dữ liệu gốc + dữ liệu mở rộng)
-                rows.append(new_row)
-        else:
-            # Nếu danh sách aggregates rỗng, chỉ cần thêm lại hàng gốc (đã xóa cột aggregates)
-            rows.append(base_data)
+    expanded_df = pd.DataFrame(
+        list_series.apply(lambda x: x + [{}] * (max_len - len(x))).tolist(),
+        index=df.index,
+    )
 
-    return pd.DataFrame(rows)
+    expanded_df = pd.json_normalize(expanded_df.to_dict(orient="records"))
+
+    # Thêm tiền tố 'column_name.' vào tên các cột mới
+    expanded_df.columns = [f"{column_name}.{col}" for col in expanded_df.columns]
+
+    # Xóa cột gốc (chứa list) và nối (join) các cột mới vào
+    df = df.drop(column_name, axis=1).join(expanded_df)
+
+    return df

@@ -1,6 +1,6 @@
 import pandas as pd
 import logging
-import re
+import re  
 from typing import Generator
 
 from osi_dump import util
@@ -9,11 +9,10 @@ from osi_dump.model.hypervisor import Hypervisor
 
 logger = logging.getLogger(__name__)
 
+# Thêm hàm helper để tách key sắp xếp
 def _extract_sort_keys(name):
     """
     Tách tên hypervisor thành phần chữ (prefix) và phần số (suffix).
-    Ví dụ: 'hfx0wld01gld01' -> ('hfx0wld01gld', 1)
-           'compute-node-no-number' -> ('compute-node-no-number', float('inf'))
     """
     if not isinstance(name, str):
         return (name, float('inf'))
@@ -35,15 +34,19 @@ class ExcelHypervisorExporter(HypervisorExporter):
         self.output_file = output_file
 
     def export_hypervisors(self, hypervisors: Generator[Hypervisor, None, None]):
-        df = pd.DataFrame(hypervisor.model_dump() for hypervisor in hypervisors)
-
+        df = pd.DataFrame(h.model_dump() for h in hypervisors)
+        
         if df.empty:
             logger.info(f"No hypervisors to export for {self.sheet_name}")
             return
-
+            
+        # BƯỚC 1: Mở rộng (Expand) cột 'aggregates'
+        # Hàm này giờ sẽ gọi logic "flatten" (không nhân bản hàng)
         if 'aggregates' in df.columns:
             df = util.expand_list_column(df, "aggregates")
 
+        # BƯỚC 2: Sắp xếp (Sort) theo prefixXX
+        # Logic này chạy SAU KHI mở rộng, và nó hoàn toàn tương thích
         if 'name' in df.columns:
             try:
                 sort_keys = df['name'].fillna('').apply(_extract_sort_keys)
