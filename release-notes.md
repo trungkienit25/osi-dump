@@ -132,3 +132,8 @@ Changed:
 - Hotfix data exporter:
   - hypervisor: Fix sorting error in Agg collums.
   - Fix: src/util/panda_excel
+
+## 0.2.1
+Changed:
+- Hotfix data exporter:
+  - hypervisor: Aggregates column's logic
