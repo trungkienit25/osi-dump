@@ -137,3 +137,7 @@ Changed:
 Changed:
 - Hotfix data exporter:
   - hypervisor: Aggregates column's logic
+
+## 0.3.1
+Changed:
+- - Add Trunk sheet
