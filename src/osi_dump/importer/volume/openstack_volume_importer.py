@@ -58,6 +58,7 @@ class OpenStackVolumeImporter(VolumeImporter):
             volume_id=volume.id,
             volume_name=volume.name,
             project_id=volume.project_id,
+            user_id=volume.user_id,
             status=volume.status,
             attachments=[att["server_id"] for att in volume.attachments],
             type=volume.volume_type,

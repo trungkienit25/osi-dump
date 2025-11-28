@@ -7,6 +7,7 @@ class Volume(BaseModel):
 
     volume_id: str
     project_id: Optional[str]
+    user_id: Optional[str]
     volume_name: Optional[str]
     attachments: Optional[list[str]]
     status: str
