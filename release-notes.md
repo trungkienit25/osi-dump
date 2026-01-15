@@ -145,3 +145,7 @@ Changed:
 ## 0.3.1.1
 Hotfix:
 - Add User_ID in Volume Sheet
+
+## 0.3.1.2
+Hotfix:
+- Fix Instance importer exception
