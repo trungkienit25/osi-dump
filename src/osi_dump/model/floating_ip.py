@@ -1,24 +1,13 @@
 from typing import Optional
+from pydantic import BaseModel
 
-from pydantic import BaseModel, ConfigDict, ValidationError
-
-
-class FloatingIP(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    floating_ip_id: str
-    project_id: Optional[str]
-
-    floating_network: str
-
+class FloatingIPModel(BaseModel):
+    id: str
     floating_ip_address: str
-
-    fixed_ip_address: Optional[str]
-
-    router_id: Optional[str]
-
-    port_id: Optional[str]
-
     status: str
+    router_id: Optional[str] = None
+    port_id: Optional[str] = None
+    fixed_ip_address: Optional[str] = None
+    project_id: str
+    project_name: Optional[str] = None
     created_at: str
-    updated_at: str

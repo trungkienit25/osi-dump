@@ -1,15 +1,12 @@
-from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from typing import Optional, List
+from pydantic import BaseModel
 
-class Trunk(BaseModel):
-    model_config = ConfigDict(strict=True)
-    trunk_id: str
-    trunk_name: Optional[str]
-    trunk_status: str
-    project_id: Optional[str]
-    parent_port_id: str
-
-    # sub-port
-    sub_port_id: str
-    segmentation_type: str
-    segmentation_id: int # VLAN ID
+class TrunkModel(BaseModel):
+    id: str
+    name: Optional[str] = None
+    status: str
+    port_id: str
+    project_id: str
+    project_name: Optional[str] = None
+    sub_ports: List[dict] = []
+    created_at: str

@@ -1,20 +1,10 @@
-from typing import Optional
+from typing import Optional, Dict
+from pydantic import BaseModel
 
-from pydantic import BaseModel, ConfigDict
-
-
-class Flavor(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    flavor_id: str
-
-    flavor_name: str
-
-    properties: Optional[dict]
-
-    ram: int
+class FlavorModel(BaseModel):
+    id: str
+    name: str
     vcpus: int
+    ram: int
     disk: int
-    swap: Optional[int]
-
-    public: bool
+    is_public: bool

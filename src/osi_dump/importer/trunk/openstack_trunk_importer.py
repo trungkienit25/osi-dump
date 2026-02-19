@@ -1,39 +1,38 @@
+from typing import Any, Generator, Dict
 import logging
-from typing import Generator
-from openstack.connection import Connection
-from openstack.network.v2.trunk import Trunk as OSTrunk
-# https://github.com/openstack/openstacksdk/blob/master/openstack/network/v2/trunk.py
-from osi_dump.importer.trunk.trunk_importer import TrunkImporter
-from osi_dump.model.trunk import Trunk
+from osi_dump.core.interfaces import IResourceImporter
+from osi_dump.model.trunk import TrunkModel
 
-logger = logging.getLogger(__name__)
+class OpenStackTrunkImporter(IResourceImporter):
+    def __init__(self, conn: Any):
+        self.conn = conn
+        self.logger = logging.getLogger(__name__)
 
-class OpenStackTrunkImporter(TrunkImporter):
-    def __init__(self, connection: Connection):
-        self.connection = connection
-
-    def import_trunks(self) -> Generator[Trunk, None, None]:
-        logger.info(f"Importing trunks for {self.connection.auth['auth_url']}")
+    def fetch_data(self) -> Generator[TrunkModel, None, None]:
+        # Phase 1: Cache Projects
+        project_map: Dict[str, str] = {}
         try:
-            for trunk in self.connection.network.trunks(all_projects=True):
-                
-                if not trunk.sub_ports:
-                    continue
+            for project in self.conn.identity.projects():
+                project_map[project.id] = project.name
+        except Exception:
+            pass
 
-                for sub_port in trunk.sub_ports:
-                    yield Trunk(
-                        trunk_id=trunk.id,
-                        trunk_name=trunk.name,
-                        trunk_status=trunk.status,
+        # Phase 2: Fetch Trunks
+        try:
+            trunks = self.conn.network.trunks()
+            for trunk in trunks:
+                try:
+                    yield TrunkModel(
+                        id=trunk.id,
+                        name=trunk.name,
+                        status=trunk.status,
+                        port_id=trunk.port_id,
                         project_id=trunk.project_id,
-                        parent_port_id=trunk.port_id, 
-                        
-                        sub_port_id=sub_port.get('port_id'),
-                        segmentation_type=sub_port.get('segmentation_type'),
-                        segmentation_id=sub_port.get('segmentation_id'),
+                        project_name=project_map.get(trunk.project_id),
+                        sub_ports=trunk.sub_ports,
+                        created_at=trunk.created_at
                     )
+                except Exception as e:
+                    self.logger.error(f"Error processing trunk {trunk.id}: {e}")
         except Exception as e:
-            logger.error(f"Cannot fetch trunks for {self.connection.auth['auth_url']}: {e}")
-            return
-        
-        logger.info(f"Finished importing trunks for {self.connection.auth['auth_url']}")
+            self.logger.critical(f"Failed to list trunks: {e}")

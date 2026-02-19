@@ -1,57 +1,30 @@
+from pathlib import Path
+from typing import Any, List
 import logging
+from osi_dump.core.interfaces import IBatchHandler
+from osi_dump.core.config import AppConfig
+from osi_dump.services.registry import HandlerRegistry
+from osi_dump.importer.floating_ip.openstack_floating_ip_importer import OpenStackFloatingIPImporter
+from osi_dump.exporter.excel_exporter import PandasExcelExporter
 
-from openstack.connection import Connection
+@HandlerRegistry.register
+class FloatingIPBatchHandler(IBatchHandler):
+    @property
+    def resource_name(self) -> str:
+        return "floating_ip"
 
-from osi_dump.exporter.floating_ip.floating_ip_exporter import FloatingIPExporter
-from osi_dump.exporter.floating_ip.excel_floating_ip_exporter import (
-    ExcelFloatingIPExporter,
-)
+    def is_enabled(self, config: AppConfig) -> bool:
+        return config.resources.floating_ip_enabled
 
-from osi_dump.importer.floating_ip.floating_ip_importer import FloatingIPImporter
-from osi_dump.importer.floating_ip.openstack_floating_ip_importer import (
-    OpenStackFloatingIPImporter,
-)
+    def process(self, connections: List[Any], output_dir: Path) -> Path:
+        logger = logging.getLogger(__name__)
+        output_file = output_dir / "osi_dump_report.xlsx"
+        logger.info(f"Starting batch processing for: {self.resource_name}")
+        
+        def generator():
+            for conn in connections:
+                yield from OpenStackFloatingIPImporter(conn).fetch_data()
 
-
-from osi_dump import util
-
-logger = logging.getLogger(__name__)
-
-
-class FloatingIPBatchHandler:
-    def __init__(self):
-        self._importer_exporter_list: list[
-            tuple[FloatingIPImporter, FloatingIPExporter]
-        ] = []
-
-    def add_importer_exporter_from_openstack_connections(
-        self, connections: list[Connection], output_file: str
-    ):
-        for connection in connections:
-            importer = OpenStackFloatingIPImporter(connection)
-
-            sheet_name = (
-                f"{util.extract_hostname(connection.auth['auth_url'])}-floating-ip"
-            )
-            exporter = ExcelFloatingIPExporter(
-                sheet_name=sheet_name, output_file=output_file
-            )
-
-            self.add_importer_exporter(importer=importer, exporter=exporter)
-
-    def add_importer_exporter(
-        self, importer: FloatingIPImporter, exporter: FloatingIPExporter
-    ):
-        self._importer_exporter_list.append((importer, exporter))
-
-    def process(self):
-
-        for importer, exporter in self._importer_exporter_list:
-            try:
-
-                floating_ips = importer.import_floating_ips()
-
-                exporter.export_floating_ips(floating_ips=floating_ips)
-            except Exception as e:
-                logger.warning(e)
-                logger.warning("Skipping...")
+        exporter = PandasExcelExporter(output_file, sheet_name=self.resource_name)
+        exporter.export_data(generator())
+        return output_file

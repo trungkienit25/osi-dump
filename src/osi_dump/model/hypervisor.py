@@ -1,24 +1,14 @@
-from typing import Optional
-from pydantic import BaseModel, ConfigDict, ValidationError
+from typing import Optional, Dict
+from pydantic import BaseModel
 
-
-class Hypervisor(BaseModel):
-    hypervisor_id: str
-    hypervisor_type: str
+class HypervisorModel(BaseModel):
+    id: str
     name: str
+    host_ip: Optional[str] = None
     state: str
     status: str
-
     vcpus: int
-    vcpus_usage: int
-
-    memory_size: int
-    memory_usage: int
-
-    local_disk_usage: int
-    local_disk_size: int
-
-    aggregates: Optional[list[dict]]  # id, name, az
-    availability_zone: Optional[str]
-
-    vm_count: int
+    vcpus_used: int
+    memory_mb: int
+    memory_mb_used: int
+   

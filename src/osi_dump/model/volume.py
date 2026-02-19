@@ -1,22 +1,15 @@
-from typing import Optional, Dict
-from pydantic import BaseModel, ConfigDict
+from typing import Optional, List
+from pydantic import BaseModel
 
-
-class Volume(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    volume_id: str
-    project_id: Optional[str]
-    user_id: Optional[str]
-    volume_name: Optional[str]
-    attachments: Optional[list[str]]
+class VolumeModel(BaseModel):
+    """Data model representing an OpenStack Volume (Cinder)."""
+    id: str
+    name: Optional[str]
     status: str
-    type: str
-    size: int
-    snapshots: Optional[list[str]]
-
-    host: Optional[str]
-    image_metadata: Optional[Dict]
-
-    updated_at: Optional[str]
-    created_at: Optional[str]
+    size_gb: int
+    project_id: str
+    project_name: Optional[str] = None
+    user_id: Optional[str] = None
+    volume_type: Optional[str] = None
+    snapshot_ids: List[str] = []
+    created_at: str

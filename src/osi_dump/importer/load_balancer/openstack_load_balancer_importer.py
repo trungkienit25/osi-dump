@@ -1,113 +1,43 @@
+from typing import Any, Generator, Dict
 import logging
+from osi_dump.core.interfaces import IResourceImporter
+from osi_dump.model.load_balancer.py import LoadBalancerModel
 
-import concurrent
+class OpenStackLoadBalancerImporter(IResourceImporter):
+    def __init__(self, conn: Any):
+        self.conn = conn
+        self.logger = logging.getLogger(__name__)
 
-from openstack.connection import Connection
-
-from openstack.load_balancer.v2.load_balancer import LoadBalancer as OSLoadBalancer
-
-from osi_dump.importer.load_balancer.load_balancer_importer import (
-    LoadBalancerImporter,
-)
-from osi_dump.model.load_balancer import LoadBalancer
-
-import osi_dump.api.octavia as octavia_api
-
-logger = logging.getLogger(__name__)
-
-
-class OpenStackLoadBalancerImporter(LoadBalancerImporter):
-    def __init__(self, connection: Connection):
-        self.connection = connection
-
-    def import_load_balancers(self) -> list[LoadBalancer]:
-        """Import load_balancers information from Openstack
-
-        Raises:
-            Exception: Raises exception if fetching load_balancer failed
-
-        Returns:
-            list[LoadBalancer]: _description_
-        """
-
-        logger.info(f"Importing load_balancers for {self.connection.auth['auth_url']}")
-
+    def fetch_data(self) -> Generator[LoadBalancerModel, None, None]:
+        # Phase 1: Cache Projects
+        project_map: Dict[str, str] = {}
         try:
-            osload_balancers: list[OSLoadBalancer] = octavia_api.get_load_balancers(
-                connection=self.connection
-            )
+            for project in self.conn.identity.projects():
+                project_map[project.id] = project.name
+        except Exception:
+            pass
+
+        # Phase 2: Fetch LBs
+        try:
+            # Need to check if Octavia service is available
+            if not getattr(self.conn, 'load_balancer', None):
+                self.logger.warning("Load Balancer service not available.")
+                return
+
+            lbs = self.conn.load_balancer.load_balancers()
+            for lb in lbs:
+                try:
+                    yield LoadBalancerModel(
+                        id=lb.id,
+                        name=lb.name,
+                        provisioning_status=lb.provisioning_status,
+                        operating_status=lb.operating_status,
+                        vip_address=lb.vip_address,
+                        project_id=lb.project_id,
+                        project_name=project_map.get(lb.project_id),
+                        created_at=lb.created_at
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error processing lb {lb.id}: {e}")
         except Exception as e:
-            raise Exception(
-                f"Can not fetch load_balancers for {self.connection.auth['auth_url']} {e}"
-            ) from e
-
-        load_balancers: list[LoadBalancer] = []
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [] 
-            
-            for load_balancer in osload_balancers:
-                logger.info("Importing load_balancer: %s", load_balancer["id"])
-                if load_balancer["id"] != None:
-                    futures.append(executor.submit(self._get_load_balancer_info, load_balancer))
-            
-            for future in concurrent.futures.as_completed(futures):
-                result = future.result() 
-                
-                if result != None: 
-                    load_balancers.append(result)
-
-        logger.info(f"Imported load_balancers for {self.connection.auth['auth_url']}")
-
-        return load_balancers
-
-    def _get_load_balancer_info(self, load_balancer: OSLoadBalancer) -> LoadBalancer:
-
-        lb_flavor_name = None 
-        lb_flavor_description = None 
-
-        try: 
-            lb_flavor = octavia_api.get_load_balancer_flavor(
-                connection=self.connection, 
-                flavor_id=load_balancer["flavor_id"]
-            )
-
-            if lb_flavor:
-                lb_flavor_name = lb_flavor["name"]
-                lb_flavor_description = lb_flavor["description"]
-            else: 
-                raise Exception(f'No flavor id found for {load_balancer["id"]}')
-        except Exception as e: 
-            logger.warning(f"Get load balancer flavor failed {e}")
-
-        try: 
-            amphoraes = octavia_api.get_amphoraes(
-                connection=self.connection, load_balancer_id=load_balancer["id"]
-            )
-
-            for amphorae in amphoraes:
-                flavor = self.connection.get_flavor_by_id(amphorae["compute_flavor"])
-                amphorae["ram"] = flavor.ram
-                amphorae["vcpus"] = flavor.vcpus
-                amphorae["flavor_name"] = flavor.name 
-                amphorae["flavor_description"] = flavor.description
-
-            load_balancer_ret = LoadBalancer(
-                id=load_balancer["id"],
-                load_balancer_name=load_balancer["name"],
-                operating_status=load_balancer["operating_status"],
-                project_id=load_balancer["project_id"],
-                provisioning_status=load_balancer["provisioning_status"],
-                created_at=load_balancer["created_at"],
-                updated_at=load_balancer["updated_at"],
-                amphoraes=amphoraes,
-                vip=load_balancer["vip_address"],
-                flavor_name=lb_flavor_name, 
-                flavor_description=lb_flavor_description
-            )
-
-            return load_balancer_ret
-        except Exception as e: 
-            logger.warning(f"Getting lb failed {e}")
-            
-            return None
+            self.logger.critical(f"Failed to list load balancers: {e}")

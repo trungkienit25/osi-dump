@@ -1,42 +1,30 @@
+from typing import Any, Generator
 import logging
-from typing import Generator
-from openstack.connection import Connection
-from openstack.compute.v2.flavor import Flavor as OSFlavor
+from osi_dump.core.interfaces import IResourceImporter
+from osi_dump.model.flavor import FlavorModel
 
-from osi_dump.importer.flavor.flavor_importer import FlavorImporter
-from osi_dump.model.flavor import Flavor
+class OpenStackFlavorImporter(IResourceImporter):
+    def __init__(self, conn: Any):
+        self.conn = conn
+        self.logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
-class OpenStackFlavorImporter(FlavorImporter):
-    def __init__(self, connection: Connection):
-        self.connection = connection
-
-    def import_flavors(self) -> Generator[Flavor, None, None]:
-        logger.info(f"Importing flavors for {self.connection.auth['auth_url']}")
+    def fetch_data(self) -> Generator[FlavorModel, None, None]:
+        self.logger.info("Fetching Flavors...")
         try:
-            flavor_iterator = self.connection.list_flavors()
-
-            for osflavor in flavor_iterator:
-                yield self._get_flavor_info(osflavor)
-
+            # Flavors are usually global, no complex dependencies
+            flavors = self.conn.compute.flavors(details=True)
+            for f in flavors:
+                try:
+                    yield FlavorModel(
+                        id=f.id,
+                        name=f.name,
+                        vcpus=f.vcpus,
+                        ram=f.ram,
+                        disk=f.disk,
+                        is_public=f.is_public
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error processing flavor {f.id}: {e}")
+                    continue
         except Exception as e:
-            logger.error(f"Cannot fetch flavors for {self.connection.auth['auth_url']}: {e}")
-            return 
-
-        logger.info(f"Finished importing flavors for {self.connection.auth['auth_url']}")
-
-    def _get_flavor_info(self, flavor: OSFlavor) -> Flavor:
-
-        swap_val = flavor.swap if flavor.swap else None
-
-        return Flavor(
-            flavor_id=flavor.id,
-            flavor_name=flavor.name,
-            ram=flavor.ram,
-            vcpus=flavor.vcpus,
-            disk=flavor.disk,
-            swap=swap_val,
-            public=flavor.is_public,
-            properties=flavor.extra_specs,
-        )
+            self.logger.critical(f"Failed to list flavors: {e}")

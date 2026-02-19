@@ -1,0 +1,32 @@
+{
+    "resources": {
+        "instance_enabled": true,
+        "volume_enabled": true,
+        "hypervisor_enabled": true,
+        "flavor_enabled": true,
+        "image_enabled": true,
+        "network_enabled": true,
+        "port_enabled": true,
+        "router_enabled": true,
+        "floating_ip_enabled": true,
+        "security_group_enabled": true,
+        "load_balancer_enabled": true,
+        "trunk_enabled": true,
+        "project_enabled": true,
+        "role_assignment_enabled": true
+    },
+    "output": {
+        "send_telegram": false,
+        "send_s3": false,
+        "telegram": {
+            "token": "YOUR_BOT_TOKEN",
+            "chat_id": "YOUR_CHAT_ID"
+        },
+        "s3": {
+            "bucket_name": "my-bucket",
+            "access_key": "exclude",
+            "secret_key": "exclude",
+            "endpoint_url": "https://s3.example.com"
+        }
+    }
+}

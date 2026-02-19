@@ -1,37 +1,30 @@
+from pathlib import Path
+from typing import Any, List
 import logging
-from openstack.connection import Connection
-
-from osi_dump.exporter.flavor.flavor_exporter import FlavorExporter
-from osi_dump.exporter.flavor.excel_flavor_exporter import ExcelFlavorExporter
-from osi_dump.importer.flavor.flavor_importer import FlavorImporter
+from osi_dump.core.interfaces import IBatchHandler
+from osi_dump.core.config import AppConfig
+from osi_dump.services.registry import HandlerRegistry
 from osi_dump.importer.flavor.openstack_flavor_importer import OpenStackFlavorImporter
-from osi_dump import util
+from osi_dump.exporter.excel_exporter import PandasExcelExporter
 
-logger = logging.getLogger(__name__)
+@HandlerRegistry.register
+class FlavorBatchHandler(IBatchHandler):
+    @property
+    def resource_name(self) -> str:
+        return "flavor"
 
-class FlavorBatchHandler:
-    def __init__(self):
-        self._importer_exporter_list: list[tuple[FlavorImporter, FlavorExporter]] = []
+    def is_enabled(self, config: AppConfig) -> bool:
+        return config.resources.flavor_enabled
 
-    def add_importer_exporter_from_openstack_connections(
-        self, connections: list[Connection], output_file: str
-    ):
-        for connection in connections:
-            importer = OpenStackFlavorImporter(connection)
-            sheet_name = f"{util.extract_hostname(connection.auth['auth_url'])}-flavor"
-            exporter = ExcelFlavorExporter(
-                sheet_name=sheet_name, output_file=output_file
-            )
-            self.add_importer_exporter(importer=importer, exporter=exporter)
+    def process(self, connections: List[Any], output_dir: Path) -> Path:
+        logger = logging.getLogger(__name__)
+        output_file = output_dir / "osi_dump_report.xlsx"
+        logger.info(f"Starting batch processing for: {self.resource_name}")
+        
+        def generator():
+            for conn in connections:
+                yield from OpenStackFlavorImporter(conn).fetch_data()
 
-    def add_importer_exporter(self, importer: FlavorImporter, exporter: FlavorExporter):
-        self._importer_exporter_list.append((importer, exporter))
-
-    def process(self):
-        for importer, exporter in self._importer_exporter_list:
-            try:
-                flavors_generator = importer.import_flavors()
-                exporter.export_flavors(flavors=flavors_generator)
-            except Exception as e:
-                logger.warning(e)
-                logger.warning("Skipping...")
+        exporter = PandasExcelExporter(output_file, sheet_name=self.resource_name)
+        exporter.export_data(generator())
+        return output_file

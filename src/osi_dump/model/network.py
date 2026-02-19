@@ -1,26 +1,14 @@
-from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from typing import Optional, List
+from pydantic import BaseModel
 
-
-
-class Network(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    network_id: str
+class NetworkModel(BaseModel):
+    id: str
+    name: Optional[str] = None
+    status: str
+    is_shared: bool
+    is_admin_state_up: bool
+    is_router_external: bool
     project_id: str
-    name: Optional[str]
-
-    subnets: Optional[list[dict]] # {"id": str, "cidr": "str"}
-    mtu: int  
-
-    port_security_enabled: Optional[bool]
-
-    network_type: str 
-    segmentation_id: Optional[int]
-    physical_network: Optional[str]
-
-    status: Optional[str]
-    shared: Optional[bool]
-
-    created_at: Optional[str]
-    updated_at: Optional[str] 
+    project_name: Optional[str] = None
+    subnets: List[str] = []
+    created_at: str

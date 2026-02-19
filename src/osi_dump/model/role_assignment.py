@@ -1,30 +1,12 @@
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
-class UserRoleAssignment(BaseModel):
-    model_config = ConfigDict(strict=True)
+class RoleAssignmentModel(BaseModel):
+    id: Optional[str] = None # Assignments often don't have a single ID
+    role_id: str
+    role_name: Optional[str] = None
     user_id: str
-    user_name: Optional[str]
-    role_id: str
-    role_name: Optional[str]
-    scope: dict
-    enabled: Optional[bool]
-    password_expires_at: Optional[str]
-    options: Optional[dict]
-
-class GroupRoleAssignment(BaseModel):
-    model_config = ConfigDict(strict=True)
-    group_id: str
-    group_name: Optional[str]
-    role_id: str
-    role_name: Optional[str]
-    scope: dict
-
-#class EffectiveUserRole(BaseModel):
-#    model_config = ConfigDict(strict=True)
-#    user_id: str
-#    user_name: Optional[str]
-#    role_id: str
-#    role_name: Optional[str]
-#    scope: dict
-#    inherited_from_group: Optional[str]
+    user_name: Optional[str] = None
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    scope: str # project, domain, or system

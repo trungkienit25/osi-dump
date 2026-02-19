@@ -1,12 +1,16 @@
 from typing import Optional, List
 from pydantic import BaseModel
 
-class RouterModel(BaseModel):
+class PortModel(BaseModel):
     id: str
     name: Optional[str] = None
     status: str
-    admin_state_up: bool
+    mac_address: str
+    network_id: str
+    network_name: Optional[str] = None
     project_id: str
     project_name: Optional[str] = None
-    external_gateway_info: Optional[dict] = None
+    device_id: str
+    device_owner: str
+    fixed_ips: List[dict] = []
     created_at: str

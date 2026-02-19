@@ -1,41 +1,39 @@
+from typing import Any, Generator, Dict
 import logging
-from typing import Generator
-from openstack.connection import Connection
-from openstack.network.v2.floating_ip import FloatingIP as OSFloatingIP
+from osi_dump.core.interfaces import IResourceImporter
+from osi_dump.model.floating_ip import FloatingIPModel
 
-from osi_dump.importer.floating_ip.floating_ip_importer import FloatingIPImporter
-from osi_dump.model.floating_ip import FloatingIP
+class OpenStackFloatingIPImporter(IResourceImporter):
+    def __init__(self, conn: Any):
+        self.conn = conn
+        self.logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
-class OpenStackFloatingIPImporter(FloatingIPImporter):
-    def __init__(self, connection: Connection):
-        self.connection = connection
-
-    def import_floating_ips(self) -> Generator[FloatingIP, None, None]:
-        logger.info(f"Importing floating ips for {self.connection.auth['auth_url']}")
+    def fetch_data(self) -> Generator[FloatingIPModel, None, None]:
+        # Phase 1: Cache Projects
+        project_map: Dict[str, str] = {}
         try:
-            osfloating_ip_iterator = self.connection.list_floating_ips()
-            
-            for floating_ip in osfloating_ip_iterator:
-                yield self._get_floating_ip_info(floating_ip)
+            for project in self.conn.identity.projects():
+                project_map[project.id] = project.name
+        except Exception:
+            pass
 
+        # Phase 2: Fetch Floating IPs
+        try:
+            fips = self.conn.network.ips()
+            for fip in fips:
+                try:
+                    yield FloatingIPModel(
+                        id=fip.id,
+                        floating_ip_address=fip.floating_ip_address,
+                        status=fip.status,
+                        router_id=fip.router_id,
+                        port_id=fip.port_id,
+                        fixed_ip_address=fip.fixed_ip_address,
+                        project_id=fip.project_id,
+                        project_name=project_map.get(fip.project_id),
+                        created_at=fip.created_at
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error processing floating ip {fip.id}: {e}")
         except Exception as e:
-            logger.error(f"Cannot fetch floating IPs for {self.connection.auth['auth_url']}: {e}")
-            return 
-
-        logger.info(f"Finished importing floating ips for {self.connection.auth['auth_url']}")
-
-    def _get_floating_ip_info(self, floating_ip: OSFloatingIP) -> FloatingIP:
-        return FloatingIP(
-            floating_ip_id=floating_ip.id,
-            project_id=floating_ip.project_id,
-            floating_ip_address=floating_ip.floating_ip_address,
-            floating_network=floating_ip.floating_network_id,
-            fixed_ip_address=floating_ip.fixed_ip_address,
-            router_id=floating_ip.router_id,
-            port_id=floating_ip.port_id,
-            status=floating_ip.status,
-            created_at=floating_ip.created_at,
-            updated_at=floating_ip.updated_at,
-        )
+            self.logger.critical(f"Failed to list floating ips: {e}")

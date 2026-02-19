@@ -1,0 +1,16 @@
+# clouds.yaml
+# Sample OpenStack Authentication Configuration
+# Replace these values with your actual OpenStack credentials.
+
+clouds:
+  openstack:
+    auth:
+      auth_url: "https://identity.example.com/v3"
+      username: "admin"
+      password: "secret_password"
+      project_name: "admin"
+      project_domain_name: "Default"
+      user_domain_name: "Default"
+    region_name: "RegionOne"
+    identity_api_version: 3
+    # verify: false  # Uncomment to skip SSL verification (not recommended)

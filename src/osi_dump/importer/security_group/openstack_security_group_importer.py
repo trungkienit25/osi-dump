@@ -1,54 +1,36 @@
+from typing import Any, Generator, Dict
 import logging
-from typing import Generator
-from openstack.connection import Connection
-from openstack.network.v2.security_group import SecurityGroup as OSSecurityGroup
+from osi_dump.core.interfaces import IResourceImporter
+from osi_dump.model.security_group import SecurityGroupModel
 
-from osi_dump.importer.security_group.security_group_importer import SecurityGroupImporter
-from osi_dump.model.security_group import SecurityGroup, SecurityGroupRule
+class OpenStackSecurityGroupImporter(IResourceImporter):
+    def __init__(self, conn: Any):
+        self.conn = conn
+        self.logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
-class OpenStackSecurityGroupImporter(SecurityGroupImporter):
-    def __init__(self, connection: Connection):
-        self.connection = connection
-
-    def import_security_groups(self) -> Generator[SecurityGroup, None, None]:
-        logger.info(f"Importing security groups for {self.connection.auth['auth_url']}")
+    def fetch_data(self) -> Generator[SecurityGroupModel, None, None]:
+        # Phase 1: Cache Projects
+        project_map: Dict[str, str] = {}
         try:
-            os_sec_groups_iterator = self.connection.network.security_groups()
+            for project in self.conn.identity.projects():
+                project_map[project.id] = project.name
+        except Exception:
+            pass
 
-            for os_sec_group in os_sec_groups_iterator:
-                yield self._get_sec_group_info(os_sec_group)
-
+        # Phase 2: Fetch Security Groups
+        try:
+            sgs = self.conn.network.security_groups()
+            for sg in sgs:
+                try:
+                    yield SecurityGroupModel(
+                        id=sg.id,
+                        name=sg.name,
+                        description=sg.description,
+                        project_id=sg.project_id,
+                        project_name=project_map.get(sg.project_id),
+                        created_at=sg.created_at
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error processing security group {sg.id}: {e}")
         except Exception as e:
-            logger.error(f"Cannot fetch security groups for {self.connection.auth['auth_url']}: {e}")
-            return 
-
-        logger.info(f"Finished importing security groups for {self.connection.auth['auth_url']}")
-
-
-    def _get_sec_group_info(self, os_sec_group: OSSecurityGroup) -> SecurityGroup:
-        rules = []
-        if hasattr(os_sec_group, 'security_group_rules'):
-            for rule in os_sec_group.security_group_rules:
-                port_range = None
-                if rule.get('port_range_min') is not None and rule.get('port_range_max') is not None:
-                    port_range = f"{rule['port_range_min']}-{rule['port_range_max']}"
-
-                rules.append(SecurityGroupRule(
-                    rule_id=rule['id'],
-                    direction=rule['direction'],
-                    protocol=rule.get('protocol'),
-                    ethertype=rule['ethertype'],
-                    port_range=port_range,
-                    remote_ip_prefix=rule.get('remote_ip_prefix'),
-                    remote_group_id=rule.get('remote_group_id')
-                ))
-        
-        return SecurityGroup(
-            security_group_id=os_sec_group.id,
-            name=os_sec_group.name,
-            project_id=os_sec_group.project_id,
-            description=os_sec_group.description,
-            rules=rules
-        )
+            self.logger.critical(f"Failed to list security groups: {e}")

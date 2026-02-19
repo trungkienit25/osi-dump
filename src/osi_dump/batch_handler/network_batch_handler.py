@@ -1,37 +1,30 @@
+from pathlib import Path
+from typing import Any, List
 import logging
-from openstack.connection import Connection
-
-from osi_dump.exporter.network.network_exporter import NetworkExporter
-from osi_dump.exporter.network.excel_network_exporter import ExcelNetworkExporter
-from osi_dump.importer.network.network_importer import NetworkImporter
+from osi_dump.core.interfaces import IBatchHandler
+from osi_dump.core.config import AppConfig
+from osi_dump.services.registry import HandlerRegistry
 from osi_dump.importer.network.openstack_network_importer import OpenStackNetworkImporter
-from osi_dump import util
+from osi_dump.exporter.excel_exporter import PandasExcelExporter
 
-logger = logging.getLogger(__name__)
+@HandlerRegistry.register
+class NetworkBatchHandler(IBatchHandler):
+    @property
+    def resource_name(self) -> str:
+        return "network"
 
-class NetworkBatchHandler:
-    def __init__(self):
-        self._importer_exporter_list: list[tuple[NetworkImporter, NetworkExporter]] = []
+    def is_enabled(self, config: AppConfig) -> bool:
+        return config.resources.network_enabled
 
-    def add_importer_exporter_from_openstack_connections(
-        self, connections: list[Connection], output_file: str
-    ):
-        for connection in connections:
-            importer = OpenStackNetworkImporter(connection)
-            sheet_name = f"{util.extract_hostname(connection.auth['auth_url'])}-network"
-            exporter = ExcelNetworkExporter(
-                sheet_name=sheet_name, output_file=output_file
-            )
-            self.add_importer_exporter(importer=importer, exporter=exporter)
+    def process(self, connections: List[Any], output_dir: Path) -> Path:
+        logger = logging.getLogger(__name__)
+        output_file = output_dir / "osi_dump_report.xlsx"
+        logger.info(f"Starting batch processing for: {self.resource_name}")
+        
+        def generator():
+            for conn in connections:
+                yield from OpenStackNetworkImporter(conn).fetch_data()
 
-    def add_importer_exporter(self, importer: NetworkImporter, exporter: NetworkExporter):
-        self._importer_exporter_list.append((importer, exporter))
-
-    def process(self):
-        for importer, exporter in self._importer_exporter_list:
-            try:
-                networks_generator = importer.import_networks()
-                exporter.export_networks(networks=networks_generator)
-            except Exception as e:
-                logger.warning(e)
-                logger.warning("Skipping...")
+        exporter = PandasExcelExporter(output_file, sheet_name=self.resource_name)
+        exporter.export_data(generator())
+        return output_file

@@ -1,29 +1,16 @@
 from typing import Optional
+from pydantic import BaseModel
 
-from pydantic import BaseModel, ConfigDict, ValidationError
-
-
-class Instance(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    instance_id: str
-    instance_name: Optional[str]
-    project_id: Optional[str]
-    project_name: Optional[str]
-    domain_name: Optional[str]
-    private_v4_ips: Optional[list[str]]
-    floating_ip: Optional[str]
+class InstanceModel(BaseModel):
+    """Data model representing an OpenStack Instance."""
+    id: str
+    name: str
     status: str
-    ram: int
-    vcpus: int
-    vgpus: Optional[int]
-    vgpu_type: Optional[str]
-    hypervisor: Optional[str]
-
-    user_id: Optional[str]
-    
-    image_id: Optional[str]
-    flavor_id: Optional[str]
-
+    flavor_id: str
+    flavor_name: str
+    project_id: str
+    project_name: Optional[str] = None
+    availability_zone: Optional[str] = None
+    gpu_type: Optional[str] = None
+    gpu_count: int = 0
     created_at: str
-    updated_at: str
