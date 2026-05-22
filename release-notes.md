@@ -149,3 +149,7 @@ Hotfix:
 ## 0.3.1.2
 Hotfix:
 - Fix Instance importer exception
+
+## 0.4.0.0
+Changed:
+- Add Floating IP sheet
