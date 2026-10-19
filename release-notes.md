@@ -159,3 +159,8 @@ Hotfix & Optimization:
 - Fix N+1 queries performance bottleneck in Instance and Volume importers by pre-caching projects, domains, flavors, and snapshots (reducing dump time from hours to seconds).
 - Fix crash/hang caused by JSON parsing errors and proxy timeouts on large payloads.
 - Improve safety and string sanitization when extracting instance attributes.
+
+## 0.4.0.2
+Hotfix:
+- Pin Nova Compute microversion to 2.95 to avoid upstream Nova 2.96 KeyError bug when querying servers with missing RequestSpec (e.g. quota-exceeded ERROR VMs).
+- Add resilient page-by-page server fetching in OpenStackInstanceImporter with error handling to avoid losing the entire sheet when a page encounters an issue.

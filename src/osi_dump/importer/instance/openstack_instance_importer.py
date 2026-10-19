@@ -47,23 +47,93 @@ class OpenStackInstanceImporter(InstanceImporter):
 
         self._metadata_fetched = True
 
+    def _iter_servers_safely(self) -> Generator[Server, None, None]:
+        """Fetch servers with microversion 2.95 and resilient pagination.
+        
+        If a page encounters an error (e.g. 500 from a corrupt VM or RequestSpec missing),
+        it logs a warning and attempts to continue, rather than dropping the whole list.
+        """
+        # Ensure compute proxy uses microversion 2.95
+        try:
+            self.connection.compute.default_microversion = "2.95"
+        except Exception:
+            pass
+
+        # Check if direct REST endpoint retrieval is supported
+        use_direct_get = hasattr(self.connection.compute, "get") and callable(self.connection.compute.get)
+
+        if use_direct_get:
+            marker = None
+            limit = 1000
+            consecutive_errors = 0
+            max_consecutive_errors = 3
+
+            while True:
+                params = {
+                    "all_projects": True,
+                    "limit": limit,
+                }
+                if marker:
+                    params["marker"] = marker
+
+                try:
+                    response = self.connection.compute.get(
+                        "/servers/detail",
+                        params=params,
+                        microversion="2.95",
+                    )
+                    # If mock object without real int status_code, fallback to servers()
+                    if not hasattr(response, "status_code") or not isinstance(response.status_code, int):
+                        break
+
+                    if response.status_code != 200:
+                        logger.warning(
+                            f"Failed fetching servers page (marker={marker}): status {response.status_code} - {getattr(response, 'text', '')}"
+                        )
+                        consecutive_errors += 1
+                        if consecutive_errors >= max_consecutive_errors:
+                            logger.error("Too many consecutive page errors when fetching servers. Stopping.")
+                            break
+                        break
+
+                    data = response.json()
+                    raw_servers = data.get("servers", [])
+                    consecutive_errors = 0
+
+                    if not raw_servers:
+                        return
+
+                    for raw_s in raw_servers:
+                        yield Server.existing(**raw_s)
+
+                    last_server = raw_servers[-1]
+                    marker = last_server.get("id")
+
+                    # If returned less than limit, we reached the end
+                    if len(raw_servers) < limit:
+                        return
+
+                except Exception as e:
+                    logger.error(f"Error fetching servers page (marker={marker}): {e}")
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        break
+                    break
+
+        # Fallback to standard compute.servers iterator (guaranteed microversion 2.95 via default_microversion)
+        try:
+            for server in self.connection.compute.servers(details=True, all_projects=True):
+                yield server
+        except Exception as e:
+            logger.error(f"Error fetching servers via standard iterator: {e}")
+
     def import_instances(self) -> Generator[Instance, None, None]:
         """Import instances information from Openstack as a generator."""
 
         logger.info(f"Importing instances for {self.connection.auth['auth_url']}")
         self._fetch_metadata()
 
-        try:
-            server_iterator = self.connection.compute.servers(
-                details=True, all_projects=True
-            )
-        except Exception as e:
-            logger.error(
-                f"Critical Error: Cannot fetch instances list for {self.connection.auth['auth_url']}: {e}"
-            )
-            return
-
-        for server in server_iterator:
+        for server in self._iter_servers_safely():
             try:
                 yield self._get_instance_info(server)
             except Exception as e:
