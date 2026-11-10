@@ -34,12 +34,7 @@ def get_connections(file_path) -> list[Connection]:
                 project_domain_name=auth.project_domain_name,
                 user_domain_name=auth.user_domain_name,
                 interface=auth.interface,
-                compute_default_microversion="2.95",
             )
-            try:
-                connection.compute.default_microversion = "2.95"
-            except Exception:
-                pass
 
             connections.append(connection)
             auth_urls.append(auth.auth_url)

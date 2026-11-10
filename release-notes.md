@@ -167,5 +167,5 @@ Hotfix:
 
 ## 0.4.0.3
 Hotfix:
-- Strictly cap `Server._max_microversion = "2.95"` in `OpenStackInstanceImporter` to prevent openstacksdk from negotiating microversion 2.96+ on Nova clusters supporting up to 2.96 (such as VHHL1).
-- Prevent fallback to unpinned `compute.servers(details=True, all_projects=True)` when direct pagination encounters API errors.
+- Add dynamic Nova microversion negotiation with auto-downgrade to microversion 2.95 upon encountering HTTP 500 / KeyError (such as upstream Nova 2.96 bug on quota-exceeded VMs).
+- Remove static class microversion cap to maintain broad compatibility across diverse OpenStack clusters.

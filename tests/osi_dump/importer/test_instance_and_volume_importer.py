@@ -114,6 +114,44 @@ class TestOpenStackInstanceImporter:
         assert len(instances) == 1
         assert instances[0].instance_id == "good-uuid"
 
+    def test_import_instances_auto_downgrades_to_2_95_on_500_keyerror(self, mock_connection, monkeypatch):
+        mock_connection.identity.projects.return_value = []
+        mock_connection.identity.domains.return_value = []
+        mock_connection.compute.flavors.return_value = []
+
+        # compute.servers() raises 500 Server Error KeyError (like Nova 2.96 upstream bug)
+        mock_connection.compute.servers.side_effect = Exception("500 Server Error: <class 'KeyError'> 'RequestSpec'")
+
+        recovered_server = Mock(spec=Server)
+        recovered_server.id = "recovered-uuid"
+        recovered_server.name = "recovered-vm"
+        recovered_server.project_id = None
+        recovered_server.status = "ACTIVE"
+        recovered_server.hypervisor_hostname = "comp-01"
+        recovered_server.user_id = "user-111"
+        recovered_server.created_at = "2026-09-08T05:00:00Z"
+        recovered_server.updated_at = "2026-09-08T06:00:00Z"
+        recovered_server.flavor = {"id": "f-1", "ram": 2048, "vcpus": 2}
+        recovered_server.image = None
+        recovered_server.addresses = {}
+
+        # Monkeypatch Server.list to verify it gets called with microversion="2.95"
+        server_list_called = []
+        def mock_server_list(session, **kwargs):
+            server_list_called.append(kwargs)
+            return iter([recovered_server])
+
+        monkeypatch.setattr(Server, "list", mock_server_list)
+
+        importer = OpenStackInstanceImporter(mock_connection)
+        instances = list(importer.import_instances())
+
+        # Verify fallback to microversion 2.95 was invoked and instances recovered
+        assert len(server_list_called) == 1
+        assert server_list_called[0].get("microversion") == "2.95"
+        assert len(instances) == 1
+        assert instances[0].instance_id == "recovered-uuid"
+
 
 class TestOpenStackVolumeImporter:
     @pytest.fixture
