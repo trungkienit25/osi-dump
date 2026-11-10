@@ -164,3 +164,8 @@ Hotfix & Optimization:
 Hotfix:
 - Pin Nova Compute microversion to 2.95 to avoid upstream Nova 2.96 KeyError bug when querying servers with missing RequestSpec (e.g. quota-exceeded ERROR VMs).
 - Add resilient page-by-page server fetching in OpenStackInstanceImporter with error handling to avoid losing the entire sheet when a page encounters an issue.
+
+## 0.4.0.3
+Hotfix:
+- Strictly cap `Server._max_microversion = "2.95"` in `OpenStackInstanceImporter` to prevent openstacksdk from negotiating microversion 2.96+ on Nova clusters supporting up to 2.96 (such as VHHL1).
+- Prevent fallback to unpinned `compute.servers(details=True, all_projects=True)` when direct pagination encounters API errors.

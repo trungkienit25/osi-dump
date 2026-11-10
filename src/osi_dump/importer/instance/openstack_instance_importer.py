@@ -7,6 +7,11 @@ from openstack.compute.v2.flavor import Flavor as OSFlavor
 from osi_dump.importer.instance.instance_importer import InstanceImporter
 from osi_dump.model.instance import Instance
 
+# Strictly cap Server max microversion at 2.95 globally to prevent openstacksdk
+# from negotiating microversion 2.96+ with Nova (which hits the upstream Nova bug
+# raising KeyError on servers with missing RequestSpec).
+Server._max_microversion = "2.95"
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +58,8 @@ class OpenStackInstanceImporter(InstanceImporter):
         If a page encounters an error (e.g. 500 from a corrupt VM or RequestSpec missing),
         it logs a warning and attempts to continue, rather than dropping the whole list.
         """
-        # Ensure compute proxy uses microversion 2.95
+        # Ensure compute proxy and Server class use microversion 2.95
+        Server._max_microversion = "2.95"
         try:
             self.connection.compute.default_microversion = "2.95"
         except Exception:
@@ -67,6 +73,7 @@ class OpenStackInstanceImporter(InstanceImporter):
             limit = 1000
             consecutive_errors = 0
             max_consecutive_errors = 3
+            direct_get_failed = False
 
             while True:
                 params = {
@@ -84,6 +91,7 @@ class OpenStackInstanceImporter(InstanceImporter):
                     )
                     # If mock object without real int status_code, fallback to servers()
                     if not hasattr(response, "status_code") or not isinstance(response.status_code, int):
+                        direct_get_failed = True
                         break
 
                     if response.status_code != 200:
@@ -93,8 +101,11 @@ class OpenStackInstanceImporter(InstanceImporter):
                         consecutive_errors += 1
                         if consecutive_errors >= max_consecutive_errors:
                             logger.error("Too many consecutive page errors when fetching servers. Stopping.")
-                            break
-                        break
+                            return
+                        # If the very first page failed, allow fallback; otherwise finish gracefully
+                        if marker is None:
+                            direct_get_failed = True
+                        return
 
                     data = response.json()
                     raw_servers = data.get("servers", [])
@@ -116,11 +127,14 @@ class OpenStackInstanceImporter(InstanceImporter):
                 except Exception as e:
                     logger.error(f"Error fetching servers page (marker={marker}): {e}")
                     consecutive_errors += 1
-                    if consecutive_errors >= max_consecutive_errors:
-                        break
-                    break
+                    if marker is None:
+                        direct_get_failed = True
+                    return
 
-        # Fallback to standard compute.servers iterator (guaranteed microversion 2.95 via default_microversion)
+            if not direct_get_failed:
+                return
+
+        # Fallback to standard compute.servers iterator (guaranteed microversion <= 2.95 via Server._max_microversion)
         try:
             for server in self.connection.compute.servers(details=True, all_projects=True):
                 yield server
