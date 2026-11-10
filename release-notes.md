@@ -169,3 +169,7 @@ Hotfix:
 Hotfix:
 - Add dynamic Nova microversion negotiation with auto-downgrade to microversion 2.95 upon encountering HTTP 500 / KeyError (such as upstream Nova 2.96 bug on quota-exceeded VMs).
 - Remove static class microversion cap to maintain broad compatibility across diverse OpenStack clusters.
+
+## 0.4.0.4
+Hotfix:
+- Implement per-page resilient pagination with automatic microversion 2.95 fallback: fetch pages with cluster's default microversion, and if a specific page fails with 500 (KeyError due to missing RequestSpec in later pages), retry that exact page using microversion 2.95 and continue fetching subsequent pages smoothly.

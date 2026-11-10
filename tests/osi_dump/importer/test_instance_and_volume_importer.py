@@ -114,43 +114,77 @@ class TestOpenStackInstanceImporter:
         assert len(instances) == 1
         assert instances[0].instance_id == "good-uuid"
 
-    def test_import_instances_auto_downgrades_to_2_95_on_500_keyerror(self, mock_connection, monkeypatch):
+    def test_import_instances_auto_downgrades_to_2_95_on_500_keyerror(self, mock_connection):
         mock_connection.identity.projects.return_value = []
         mock_connection.identity.domains.return_value = []
         mock_connection.compute.flavors.return_value = []
 
-        # compute.servers() raises 500 Server Error KeyError (like Nova 2.96 upstream bug)
-        mock_connection.compute.servers.side_effect = Exception("500 Server Error: <class 'KeyError'> 'RequestSpec'")
+        # Simulate page 1 success with 2 servers, page 2 500 Server Error under default microversion,
+        # and successful recovery of page 2 under microversion 2.95
+        page1_resp = Mock()
+        page1_resp.status_code = 200
+        page1_resp.json.return_value = {
+            "servers": [
+                {
+                    "id": "vm-page1-1",
+                    "name": "vm-1",
+                    "status": "ACTIVE",
+                    "hypervisor_hostname": "comp-1",
+                    "flavor": {"id": "f1", "ram": 1024, "vcpus": 1},
+                    "addresses": {},
+                },
+                {
+                    "id": "vm-page1-2",
+                    "name": "vm-2",
+                    "status": "ACTIVE",
+                    "hypervisor_hostname": "comp-1",
+                    "flavor": {"id": "f1", "ram": 1024, "vcpus": 1},
+                    "addresses": {},
+                },
+            ]
+        }
 
-        recovered_server = Mock(spec=Server)
-        recovered_server.id = "recovered-uuid"
-        recovered_server.name = "recovered-vm"
-        recovered_server.project_id = None
-        recovered_server.status = "ACTIVE"
-        recovered_server.hypervisor_hostname = "comp-01"
-        recovered_server.user_id = "user-111"
-        recovered_server.created_at = "2026-09-08T05:00:00Z"
-        recovered_server.updated_at = "2026-09-08T06:00:00Z"
-        recovered_server.flavor = {"id": "f-1", "ram": 2048, "vcpus": 2}
-        recovered_server.image = None
-        recovered_server.addresses = {}
+        page2_fail_resp = Mock()
+        page2_fail_resp.status_code = 500
+        page2_fail_resp.text = "Internal Server Error: <class 'KeyError'>"
 
-        # Monkeypatch Server.list to verify it gets called with microversion="2.95"
-        server_list_called = []
-        def mock_server_list(session, **kwargs):
-            server_list_called.append(kwargs)
-            return iter([recovered_server])
+        page2_fallback_resp = Mock()
+        page2_fallback_resp.status_code = 200
+        page2_fallback_resp.json.return_value = {
+            "servers": [
+                {
+                    "id": "vm-page2-recovered",
+                    "name": "vm-err",
+                    "status": "ERROR",
+                    "hypervisor_hostname": None,
+                    "flavor": {"id": "f1", "ram": 1024, "vcpus": 1},
+                    "addresses": {},
+                }
+            ]
+        }
 
-        monkeypatch.setattr(Server, "list", mock_server_list)
+        def mock_compute_get(url, params=None, microversion=None):
+            params = params or {}
+            limit = params.get("limit", 1000)
+            marker = params.get("marker")
+            if marker is None:
+                # Return page 1 with limit servers
+                p1_servers = [{"id": f"vm-p1-{i}", "name": f"vm-{i}", "status": "ACTIVE", "hypervisor_hostname": "c1", "flavor": {}, "addresses": {}} for i in range(limit)]
+                return Mock(status_code=200, json=lambda: {"servers": p1_servers})
+            if marker == f"vm-p1-{limit-1}":
+                if microversion == "2.95":
+                    return page2_fallback_resp
+                return page2_fail_resp
+            return Mock(status_code=200, json=lambda: {"servers": []})
+
+        mock_connection.compute.get.side_effect = mock_compute_get
 
         importer = OpenStackInstanceImporter(mock_connection)
         instances = list(importer.import_instances())
 
-        # Verify fallback to microversion 2.95 was invoked and instances recovered
-        assert len(server_list_called) == 1
-        assert server_list_called[0].get("microversion") == "2.95"
-        assert len(instances) == 1
-        assert instances[0].instance_id == "recovered-uuid"
+        # Should retrieve 1000 servers from page 1 AND the recovered server from page 2
+        assert len(instances) == 1001
+        assert instances[-1].instance_id == "vm-page2-recovered"
 
 
 class TestOpenStackVolumeImporter:

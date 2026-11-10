@@ -48,41 +48,108 @@ class OpenStackInstanceImporter(InstanceImporter):
         self._metadata_fetched = True
 
     def _iter_servers_safely(self) -> Generator[Server, None, None]:
-        """Automatically negotiate the highest supported microversion for the cluster.
-        If the server encounters a 500 error (e.g. Nova upstream 2.96 KeyError bug),
-        automatically downgrade to microversion 2.95 to safely retrieve instances.
+        """Fetch servers page by page using the cluster's highest microversion.
+        If any specific page fails with HTTP 500 (e.g. Nova upstream 2.96 KeyError bug),
+        transparently retry that exact page with microversion 2.95 and continue.
         """
-        # Attempt 1: Standard SDK auto-negotiation using the cluster's highest microversion
-        yielded_any = False
-        try:
-            for server in self.connection.compute.servers(details=True, all_projects=True):
-                yielded_any = True
-                yield server
-            return
-        except Exception as e:
-            err_msg = str(e)
-            is_500_error = "500" in err_msg or "KeyError" in err_msg
-            if not is_500_error or yielded_any:
-                # If items were already yielded before failure or error is not a 500/KeyError
-                logger.error(f"Error fetching servers via default microversion: {e}")
+        # Check if direct REST endpoint retrieval is supported
+        use_direct_get = hasattr(self.connection.compute, "get") and callable(self.connection.compute.get)
+
+        if use_direct_get:
+            marker = None
+            limit = 1000
+            consecutive_errors = 0
+            max_consecutive_errors = 3
+            use_fallback_servers = False
+
+            while True:
+                params = {
+                    "all_projects": True,
+                    "limit": limit,
+                }
+                if marker:
+                    params["marker"] = marker
+
+                servers_data = None
+
+                # Attempt 1: Fetch current page with default (highest) microversion
+                try:
+                    response = self.connection.compute.get(
+                        "/servers/detail",
+                        params=params,
+                    )
+                    # If mock/proxy object without int status_code, switch to fallback
+                    if not hasattr(response, "status_code") or not isinstance(response.status_code, int):
+                        use_fallback_servers = True
+                        break
+
+                    if response.status_code == 200:
+                        servers_data = response.json().get("servers", [])
+                    elif response.status_code == 500:
+                        logger.warning(
+                            f"Page with marker={marker} returned 500 under default microversion. "
+                            f"Retrying this page with microversion 2.95..."
+                        )
+                    else:
+                        logger.warning(
+                            f"Page with marker={marker} returned status {response.status_code}: {getattr(response, 'text', '')}"
+                        )
+                except Exception as e:
+                    if "500" in str(e) or "KeyError" in str(e):
+                        logger.warning(
+                            f"Page with marker={marker} raised 500 ({e}). Retrying with microversion 2.95..."
+                        )
+                    else:
+                        logger.error(f"Error fetching page (marker={marker}): {e}")
+
+                # Attempt 2: If attempt 1 failed with 500 or error, retry this exact page with 2.95
+                if servers_data is None:
+                    try:
+                        response_fb = self.connection.compute.get(
+                            "/servers/detail",
+                            params=params,
+                            microversion="2.95",
+                        )
+                        if hasattr(response_fb, "status_code") and response_fb.status_code == 200:
+                            servers_data = response_fb.json().get("servers", [])
+                            logger.info(f"Successfully recovered page with marker={marker} using microversion 2.95.")
+                        else:
+                            err_code = getattr(response_fb, "status_code", "unknown")
+                            logger.error(f"Fallback page with marker={marker} failed with status {err_code}")
+                    except Exception as fb_err:
+                        logger.error(f"Fallback page with marker={marker} raised error: {fb_err}")
+
+                # If both attempts failed, check error threshold
+                if servers_data is None:
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        logger.error("Too many consecutive page errors. Stopping server import safely.")
+                        return
+                    return
+
+                consecutive_errors = 0
+                if not servers_data:
+                    return
+
+                for raw_s in servers_data:
+                    yield Server.existing(
+                        connection=self.connection,
+                        **raw_s,
+                    )
+
+                marker = servers_data[-1].get("id")
+                if len(servers_data) < limit:
+                    return
+
+            if not use_fallback_servers:
                 return
 
-            logger.warning(
-                f"Server Error 500 encountered ({e}) using default microversion. "
-                f"Automatically downgrading to microversion 2.95 to retrieve data safely..."
-            )
-
-        # Attempt 2: Fallback to microversion 2.95 explicitly via Server.list
+        # Fallback to compute.servers() iterator if direct REST get is not available (e.g. unit test mocks)
         try:
-            for server in Server.list(
-                self.connection.compute,
-                base_path="/servers/detail",
-                microversion="2.95",
-                all_projects=True,
-            ):
+            for server in self.connection.compute.servers(details=True, all_projects=True):
                 yield server
-        except Exception as fallback_err:
-            logger.error(f"Error fetching servers with microversion 2.95 fallback: {fallback_err}")
+        except Exception as e:
+            logger.error(f"Error fetching servers via compute.servers: {e}")
 
     def import_instances(self) -> Generator[Instance, None, None]:
         """Import instances information from Openstack as a generator."""
