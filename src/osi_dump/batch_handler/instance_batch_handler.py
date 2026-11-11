@@ -42,5 +42,5 @@ class InstanceBatchHandler:
                 # generator exporter 
                 exporter.export_instances(instances=instances_generator)
             except Exception as e:
-                logger.warning(e)
+                logger.error(f"Error exporting instances for {exporter.sheet_name}: {e}", exc_info=True)
                 logger.warning("Skipping...")

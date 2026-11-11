@@ -40,8 +40,14 @@ def get_connections(file_path) -> list[Connection]:
                 project_domain_name=auth.project_domain_name,
                 user_domain_name=auth.user_domain_name,
                 interface=auth.interface,
+                compute_api_version="2.95",
                 compute_default_microversion="2.95",
             )
+            try:
+                if hasattr(connection, "compute") and hasattr(connection.compute, "default_microversion"):
+                    connection.compute.default_microversion = "2.95"
+            except Exception as mv_err:
+                logger.debug(f"Could not set default_microversion on compute proxy: {mv_err}")
 
             connections.append(connection)
             auth_urls.append(auth.auth_url)

@@ -178,3 +178,11 @@ Hotfix:
 Hotfix & Resilience Improvement:
 - Strictly enforce OpenStack Compute microversion 2.95 via official SDK environment variable `OS_COMPUTE_DEFAULT_MICROVERSION`, connection configuration `compute_default_microversion="2.95"`, and `Server._max_microversion = "2.95"` to bypass upstream Nova 2.96 KeyError bug.
 - Add fault-tolerant single-VM isolation mode in `OpenStackInstanceImporter`: if a corrupt server in a page triggers HTTP 500, the importer isolates and skips that specific corrupt instance, preventing batch crash and preserving the entire instances sheet.
+
+## 0.4.0.6
+Hotfix & Sheet Protection:
+- Guaranteed Microversion 2.95: explicitly pass `microversion="2.95"` directly to SDK calls (`compute.servers(...)` and REST endpoints) and assign `compute.default_microversion = "2.95"` on the active compute proxy adapter to prevent silent client-side version negotiation to 2.96.
+- 3-Layer Sheet Protection:
+  1. Importer: isolate corrupt servers and skip past their marker via basic `/servers` query.
+  2. Iterator: wrap generator streaming with `next()` error suppression so exceptions never bubble up to `InstanceBatchHandler`.
+  3. Exporter: progressive instance collection in `ExcelInstanceExporter` guaranteeing all fetched instances are written to Excel even if stream interruption occurs, completely preventing sheet loss.

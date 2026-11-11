@@ -22,6 +22,13 @@ class OpenStackInstanceImporter(InstanceImporter):
         self.flavors = {}
         self._metadata_fetched = False
 
+        # Enforce microversion 2.95 on compute proxy and connection config
+        try:
+            if hasattr(self.connection, "compute") and hasattr(self.connection.compute, "default_microversion"):
+                self.connection.compute.default_microversion = "2.95"
+        except Exception as e:
+            logger.debug(f"Could not set default_microversion in OpenStackInstanceImporter: {e}")
+
     def _fetch_metadata(self):
         """Pre-cache projects, domains, and flavors to avoid N+1 REST API calls."""
         if self._metadata_fetched:
@@ -140,7 +147,13 @@ class OpenStackInstanceImporter(InstanceImporter):
         return recovered_servers, current_marker
 
     def _probe_next_marker(self, current_marker: Optional[str]) -> Optional[str]:
-        """Try fetching a basic non-detail server list (/servers) to get the next valid ID."""
+        """Try fetching a basic non-detail server list (/servers) to find the ID after the corrupt server.
+        When querying /servers?marker=<current_marker>&limit=2:
+          - servers[0] is the corrupt server (which failed in /servers/detail)
+          - servers[1] is the next healthy server after the corrupt one
+        Returning servers[0]['id'] as the marker instructs Nova to resume starting after the corrupt server!
+        If only 1 server is returned, servers[0] is the last server, so we return its ID to conclude cleanly.
+        """
         try:
             params = {"all_projects": True, "limit": 2}
             if current_marker:
@@ -150,8 +163,11 @@ class OpenStackInstanceImporter(InstanceImporter):
             if hasattr(resp, "status_code") and resp.status_code == 200:
                 servers = resp.json().get("servers", [])
                 if servers:
-                    # Return the ID of the corrupt server as the marker so subsequent queries start after it
-                    return servers[0].get("id")
+                    corrupt_id = servers[0].get("id")
+                    logger.warning(
+                        f"Isolated corrupt server ID via basic /servers query: {corrupt_id}. Setting marker past it to continue dump."
+                    )
+                    return corrupt_id
         except Exception as e:
             logger.debug(f"Could not probe basic server list for marker: {e}")
         return None
@@ -218,11 +234,23 @@ class OpenStackInstanceImporter(InstanceImporter):
 
         # Fallback to compute.servers() iterator for mock objects or unsupported adapters
         try:
-            logger.info("Using standard compute.servers() iterator fallback...")
-            for server in self.connection.compute.servers(details=True, all_projects=True):
-                yield server
+            logger.info("Using standard compute.servers() iterator fallback with microversion 2.95...")
+            servers_iter = iter(
+                self.connection.compute.servers(details=True, all_projects=True, microversion="2.95")
+            )
+            while True:
+                try:
+                    server = next(servers_iter)
+                    yield server
+                except StopIteration:
+                    break
+                except Exception as iter_err:
+                    logger.error(
+                        f"Exception during server streaming iterator: {iter_err}. Stopping gracefully to preserve gathered servers."
+                    )
+                    break
         except Exception as e:
-            logger.error(f"Error fetching servers via compute.servers: {e}")
+            logger.error(f"Error initializing compute.servers iterator: {e}")
 
     def import_instances(self) -> Generator[Instance, None, None]:
         """Import instances information from Openstack as a generator."""

@@ -14,7 +14,20 @@ class ExcelInstanceExporter(InstanceExporter):
         self.output_file = output_file
 
     def export_instances(self, instances: Generator[Instance, None, None]):
-        df = pd.DataFrame(instance.model_dump() for instance in instances)
+        collected_instances = []
+        try:
+            for instance in instances:
+                try:
+                    collected_instances.append(instance.model_dump())
+                except Exception as dump_err:
+                    logger.warning(f"Error dumping instance model: {dump_err}")
+        except Exception as iter_err:
+            logger.error(
+                f"Stream interrupted while fetching instances for {self.sheet_name}: {iter_err}. "
+                f"Exporting {len(collected_instances)} instances collected so far to protect sheet integrity."
+            )
+
+        df = pd.DataFrame(collected_instances)
 
         if df.empty:
             logger.info(f"No instances to export for {self.sheet_name}")
