@@ -168,13 +168,16 @@ class TestOpenStackInstanceImporter:
             limit = params.get("limit", 1000)
             marker = params.get("marker")
             if marker is None:
-                # Return page 1 with limit servers
-                p1_servers = [{"id": f"vm-p1-{i}", "name": f"vm-{i}", "status": "ACTIVE", "hypervisor_hostname": "c1", "flavor": {}, "addresses": {}} for i in range(limit)]
-                return Mock(status_code=200, json=lambda: {"servers": p1_servers})
-            if marker == f"vm-p1-{limit-1}":
-                if microversion == "2.95":
+                if limit == 1000:
+                    p1_servers = [{"id": f"vm-p1-{i}", "name": f"vm-{i}", "status": "ACTIVE", "hypervisor_hostname": "c1", "flavor": {}, "addresses": {}} for i in range(limit)]
+                    return Mock(status_code=200, json=lambda: {"servers": p1_servers})
+            if marker == "vm-p1-999":
+                # Page 2 bulk query fails with 500
+                if limit == 1000:
+                    return page2_fail_resp
+                # In isolation mode (limit=1), returns the recovered server
+                if limit == 1:
                     return page2_fallback_resp
-                return page2_fail_resp
             return Mock(status_code=200, json=lambda: {"servers": []})
 
         mock_connection.compute.get.side_effect = mock_compute_get

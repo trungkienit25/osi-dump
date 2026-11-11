@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 
 from pydantic import ValidationError
 
@@ -19,6 +20,11 @@ TIMEOUT_SECOND = 30
 def get_connections(file_path) -> list[Connection]:
     auths = _parse_authentication_info(file_path=file_path)
 
+    # Enforce OpenStack Compute microversion to 2.95 via official SDK environment variable
+    # to avoid upstream Nova 2.96 KeyError bug on quota-exceeded VMs
+    os.environ["OS_COMPUTE_DEFAULT_MICROVERSION"] = "2.95"
+    logger.info("Setting OS_COMPUTE_DEFAULT_MICROVERSION=2.95 to ensure stable Compute API communication.")
+
     logger.info("Getting connections")
 
     connections = []
@@ -34,6 +40,7 @@ def get_connections(file_path) -> list[Connection]:
                 project_domain_name=auth.project_domain_name,
                 user_domain_name=auth.user_domain_name,
                 interface=auth.interface,
+                compute_default_microversion="2.95",
             )
 
             connections.append(connection)

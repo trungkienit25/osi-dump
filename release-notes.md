@@ -173,3 +173,8 @@ Hotfix:
 ## 0.4.0.4
 Hotfix:
 - Implement per-page resilient pagination with automatic microversion 2.95 fallback: fetch pages with cluster's default microversion, and if a specific page fails with 500 (KeyError due to missing RequestSpec in later pages), retry that exact page using microversion 2.95 and continue fetching subsequent pages smoothly.
+
+## 0.4.0.5
+Hotfix & Resilience Improvement:
+- Strictly enforce OpenStack Compute microversion 2.95 via official SDK environment variable `OS_COMPUTE_DEFAULT_MICROVERSION`, connection configuration `compute_default_microversion="2.95"`, and `Server._max_microversion = "2.95"` to bypass upstream Nova 2.96 KeyError bug.
+- Add fault-tolerant single-VM isolation mode in `OpenStackInstanceImporter`: if a corrupt server in a page triggers HTTP 500, the importer isolates and skips that specific corrupt instance, preventing batch crash and preserving the entire instances sheet.

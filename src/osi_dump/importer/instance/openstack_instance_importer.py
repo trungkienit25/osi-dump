@@ -7,6 +7,10 @@ from openstack.compute.v2.flavor import Flavor as OSFlavor
 from osi_dump.importer.instance.instance_importer import InstanceImporter
 from osi_dump.model.instance import Instance
 
+# Set Server resource maximum microversion to 2.95 to prevent openstacksdk
+# from negotiating 2.96 with clusters supporting 2.96 (avoiding Nova upstream KeyError bug)
+Server._max_microversion = "2.95"
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,105 +51,174 @@ class OpenStackInstanceImporter(InstanceImporter):
 
         self._metadata_fetched = True
 
-    def _iter_servers_safely(self) -> Generator[Server, None, None]:
-        """Fetch servers page by page using the cluster's highest microversion.
-        If any specific page fails with HTTP 500 (e.g. Nova upstream 2.96 KeyError bug),
-        transparently retry that exact page with microversion 2.95 and continue.
+    def _fetch_page(self, marker: Optional[str], limit: int) -> tuple[Optional[list], bool]:
+        """Fetch a single page of servers with microversion 2.95.
+        Returns (servers_list, is_server_error_500).
         """
-        # Check if direct REST endpoint retrieval is supported
+        params = {
+            "all_projects": True,
+            "limit": limit,
+        }
+        if marker:
+            params["marker"] = marker
+
+        try:
+            response = self.connection.compute.get(
+                "/servers/detail",
+                params=params,
+                microversion="2.95",
+            )
+            # If not a real HTTP response (e.g. test mock), return None
+            if not hasattr(response, "status_code") or not isinstance(response.status_code, int):
+                return None, False
+
+            if response.status_code == 200:
+                data = response.json().get("servers", [])
+                return data, False
+
+            if response.status_code == 500:
+                logger.warning(
+                    f"HTTP 500 Server Error encountered on servers page (marker={marker}, limit={limit}): {getattr(response, 'text', '')}"
+                )
+                return None, True
+
+            logger.warning(
+                f"Unexpected status {response.status_code} on servers page (marker={marker}, limit={limit}): {getattr(response, 'text', '')}"
+            )
+            return None, False
+
+        except Exception as e:
+            is_500 = "500" in str(e) or "KeyError" in str(e)
+            if is_500:
+                logger.warning(f"HTTP 500 exception on servers page (marker={marker}, limit={limit}): {e}")
+            else:
+                logger.error(f"Error fetching servers page (marker={marker}, limit={limit}): {e}")
+            return None, is_500
+
+    def _skip_corrupt_server(self, marker: Optional[str], page_limit: int) -> tuple[Generator[dict, None, None], Optional[str]]:
+        """Isolate and skip corrupt server(s) causing HTTP 500 within a page window.
+        Uses limit=1 to safely iterate through healthy servers up to the corrupt one,
+        skips the corrupt entry, and returns the next valid marker.
+        """
+        current_marker = marker
+        recovered_servers = []
+
+        logger.warning(
+            f"Fault-tolerant isolation active: Stepping through instances one-by-one from marker={marker} to isolate corrupt VM..."
+        )
+
+        # Step 1-by-1 through the range that failed
+        for step in range(page_limit):
+            single_list, is_500 = self._fetch_page(marker=current_marker, limit=1)
+
+            if single_list and len(single_list) > 0:
+                # Successfully retrieved a healthy server in this batch
+                good_server = single_list[0]
+                recovered_servers.append(good_server)
+                current_marker = good_server.get("id")
+                # If retrieved fewer than 1 (empty), reached end
+                if len(single_list) < 1:
+                    break
+            elif is_500:
+                # Found the corrupt server! A single-item query starting after current_marker failed with 500
+                logger.warning(
+                    f"Identified corrupt instance immediately following marker={current_marker}. Skipping corrupt entry to preserve sheet integrity."
+                )
+                # Try to probe next ID using basic non-detail query (/servers)
+                next_marker = self._probe_next_marker(current_marker)
+                if next_marker:
+                    logger.info(f"Resuming pagination after corrupt instance. New marker={next_marker}")
+                    current_marker = next_marker
+                else:
+                    logger.warning(f"Could not determine next marker past {current_marker}. Returning recovered servers.")
+                    return recovered_servers, current_marker
+                break
+            else:
+                # No more items or end of list
+                break
+
+        return recovered_servers, current_marker
+
+    def _probe_next_marker(self, current_marker: Optional[str]) -> Optional[str]:
+        """Try fetching a basic non-detail server list (/servers) to get the next valid ID."""
+        try:
+            params = {"all_projects": True, "limit": 2}
+            if current_marker:
+                params["marker"] = current_marker
+            # Basic /servers does not load RequestSpec/extended attributes, avoiding the 500 bug
+            resp = self.connection.compute.get("/servers", params=params, microversion="2.95")
+            if hasattr(resp, "status_code") and resp.status_code == 200:
+                servers = resp.json().get("servers", [])
+                if servers:
+                    # Return the ID of the corrupt server as the marker so subsequent queries start after it
+                    return servers[0].get("id")
+        except Exception as e:
+            logger.debug(f"Could not probe basic server list for marker: {e}")
+        return None
+
+    def _iter_servers_safely(self) -> Generator[Server, None, None]:
+        """Fetch servers with microversion 2.95 and resilient per-instance fault tolerance.
+        If a server causes HTTP 500 (e.g. corrupt DB / missing RequestSpec),
+        isolate and skip that specific server, continuing to fetch the rest.
+        """
         use_direct_get = hasattr(self.connection.compute, "get") and callable(self.connection.compute.get)
 
         if use_direct_get:
             marker = None
             limit = 1000
-            consecutive_errors = 0
-            max_consecutive_errors = 3
-            use_fallback_servers = False
+            total_imported = 0
+            use_fallback_iterator = False
 
             while True:
-                params = {
-                    "all_projects": True,
-                    "limit": limit,
-                }
-                if marker:
-                    params["marker"] = marker
+                servers_data, is_500 = self._fetch_page(marker=marker, limit=limit)
 
-                servers_data = None
+                # Check if connection.compute.get is not a real HTTP proxy (e.g. mock in unit tests)
+                if servers_data is None and not is_500 and total_imported == 0 and marker is None:
+                    use_fallback_iterator = True
+                    break
 
-                # Attempt 1: Fetch current page with default (highest) microversion
-                try:
-                    response = self.connection.compute.get(
-                        "/servers/detail",
-                        params=params,
-                    )
-                    # If mock/proxy object without int status_code, switch to fallback
-                    if not hasattr(response, "status_code") or not isinstance(response.status_code, int):
-                        use_fallback_servers = True
-                        break
-
-                    if response.status_code == 200:
-                        servers_data = response.json().get("servers", [])
-                    elif response.status_code == 500:
-                        logger.warning(
-                            f"Page with marker={marker} returned 500 under default microversion. "
-                            f"Retrying this page with microversion 2.95..."
-                        )
-                    else:
-                        logger.warning(
-                            f"Page with marker={marker} returned status {response.status_code}: {getattr(response, 'text', '')}"
-                        )
-                except Exception as e:
-                    if "500" in str(e) or "KeyError" in str(e):
-                        logger.warning(
-                            f"Page with marker={marker} raised 500 ({e}). Retrying with microversion 2.95..."
-                        )
-                    else:
-                        logger.error(f"Error fetching page (marker={marker}): {e}")
-
-                # Attempt 2: If attempt 1 failed with 500 or error, retry this exact page with 2.95
-                if servers_data is None:
-                    try:
-                        response_fb = self.connection.compute.get(
-                            "/servers/detail",
-                            params=params,
-                            microversion="2.95",
-                        )
-                        if hasattr(response_fb, "status_code") and response_fb.status_code == 200:
-                            servers_data = response_fb.json().get("servers", [])
-                            logger.info(f"Successfully recovered page with marker={marker} using microversion 2.95.")
-                        else:
-                            err_code = getattr(response_fb, "status_code", "unknown")
-                            logger.error(f"Fallback page with marker={marker} failed with status {err_code}")
-                    except Exception as fb_err:
-                        logger.error(f"Fallback page with marker={marker} raised error: {fb_err}")
-
-                # If both attempts failed, check error threshold
-                if servers_data is None:
-                    consecutive_errors += 1
-                    if consecutive_errors >= max_consecutive_errors:
-                        logger.error("Too many consecutive page errors. Stopping server import safely.")
+                # If page succeeded
+                if servers_data is not None:
+                    if not servers_data:
+                        logger.info(f"Completed instance fetching. Total instances retrieved: {total_imported}")
                         return
-                    return
 
-                consecutive_errors = 0
-                if not servers_data:
-                    return
+                    for raw_s in servers_data:
+                        yield Server.existing(connection=self.connection, **raw_s)
+                        total_imported += 1
 
-                for raw_s in servers_data:
-                    yield Server.existing(
-                        connection=self.connection,
-                        **raw_s,
-                    )
+                    marker = servers_data[-1].get("id")
+                    if len(servers_data) < limit:
+                        logger.info(f"Reached last page of instances. Total instances retrieved: {total_imported}")
+                        return
+                    continue
 
-                marker = servers_data[-1].get("id")
-                if len(servers_data) < limit:
-                    return
+                # If page failed with 500, isolate and skip corrupt VM
+                if is_500:
+                    recovered_servers, next_marker = self._skip_corrupt_server(marker=marker, page_limit=limit)
+                    for raw_s in recovered_servers:
+                        yield Server.existing(connection=self.connection, **raw_s)
+                        total_imported += 1
 
-            if not use_fallback_servers:
+                    if not next_marker or next_marker == marker:
+                        logger.warning(
+                            f"Fault-tolerant pagination reached boundary at marker={marker}. Stopping gracefully. Total retrieved: {total_imported}"
+                        )
+                        return
+
+                    marker = next_marker
+                    continue
+
+                # Any other unrecoverable page failure
+                logger.error(f"Stopping instance retrieval gracefully at marker={marker}. Total retrieved: {total_imported}")
                 return
 
-        # Fallback to compute.servers() iterator if direct REST get is not available (e.g. unit test mocks)
+            if not use_fallback_iterator:
+                return
+
+        # Fallback to compute.servers() iterator for mock objects or unsupported adapters
         try:
+            logger.info("Using standard compute.servers() iterator fallback...")
             for server in self.connection.compute.servers(details=True, all_projects=True):
                 yield server
         except Exception as e:
